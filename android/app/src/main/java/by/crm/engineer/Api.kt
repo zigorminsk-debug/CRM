@@ -58,6 +58,10 @@ class Api(private val ctx: Context) {
 
     class ApiException(message: String) : Exception(message)
 
+    // ------------------------------------------------------------------ служебные
+    /** Проверка доступности сервера: GET /api/health (без авторизации). */
+    fun health(): JSONObject = request("GET", "/api/health")
+
     // ------------------------------------------------------------------ вход
     fun saveServer(url: String) {
         var u = url.trim()

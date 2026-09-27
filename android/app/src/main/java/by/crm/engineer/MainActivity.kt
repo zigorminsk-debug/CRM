@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<EditText>(R.id.serverEdit).setText(api.base)
         findViewById<Button>(R.id.loginButton).setOnClickListener { doLogin() }
+        findViewById<Button>(R.id.checkButton).setOnClickListener { doCheck() }
         findViewById<Button>(R.id.logoutButton).setOnClickListener {
             api.token = ""
             showLogin(true)
@@ -136,6 +137,29 @@ class MainActivity : AppCompatActivity() {
             // иначе после первой же неудачи вход блокируется навсегда.
             btn.isEnabled = true
             btn.text = getString(R.string.login_button)
+        })
+    }
+
+    /**
+     * Диагностика без попытки входа: доступен ли сервер по указанному адресу.
+     * Отделяет сетевые проблемы (брандмауэр, Wi-Fi, адрес) от ошибок логина.
+     */
+    private fun doCheck() {
+        val server = findViewById<EditText>(R.id.serverEdit).text.toString()
+        if (server.isBlank()) {
+            toast("Укажите адрес сервера")
+            return
+        }
+        api.saveServer(server)
+        toast("Проверяю " + server.trim() + " …")
+        apiCall({
+            val h = api.health()
+            runOnUiThread {
+                val zones = h.optInt("zone_count", -1)
+                toast("Сервер отвечает, версия " + h.optString("version") +
+                      (if (zones >= 0) ", зон: " + zones else "") +
+                      ". Теперь вход должен пройти.")
+            }
         })
     }
 

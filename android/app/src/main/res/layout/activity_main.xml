@@ -66,8 +66,17 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:backgroundTint="@color/accent"
-                android:text="Войти и получить заявки"
+                android:text="@string/login_button"
                 android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/checkButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="@color/panel2"
+                android:text="@string/check_button"
+                android:textColor="@color/text" />
 
             <TextView
                 android:layout_width="match_parent"
