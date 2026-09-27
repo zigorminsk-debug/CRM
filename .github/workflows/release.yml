@@ -175,20 +175,6 @@ jobs:
           name: crm-logs-android
           path: ${{ runner.temp }}/android-build.log
           if-no-files-found: ignore
-      # Диагностика падений: журнал сборки коммитится в ветку (в CI GitHub не всегда
-      # можно скачать артефакты/логи, а так он всегда под рукой — ci-logs/android-build.log).
-      - name: Журнал сборки в ветку (диагностика)
-        if: failure()
-        run: |
-          mkdir -p ci-logs
-          cp "$RUNNER_TEMP/android-build.log" ci-logs/android-build.log 2>/dev/null || true
-          [[ -s ci-logs/android-build.log ]] || exit 0
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-          git add -f ci-logs/android-build.log
-          git diff --cached --quiet && exit 0
-          git commit -m "ci: журнал сборки APK [skip ci]"
-          git push origin "HEAD:${{ github.head_ref || github.ref_name }}" || true
 
   # --------------------------------------------- релиз с номером и манифестом
   release:
