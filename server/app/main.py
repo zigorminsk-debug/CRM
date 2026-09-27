@@ -933,6 +933,7 @@ def downloads_page() -> HTMLResponse:
 def root() -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <title>Cartridge Engineer — приём заявок</title>
+    <link rel="icon" href="/static/mobile/icon-32.png">
     <style>body{{font:16px system-ui;margin:40px;max-width:820px;line-height:1.5}}
     a.b{{display:inline-block;margin:6px 12px 6px 0;padding:10px 16px;background:#1a56db;color:#fff;
     border-radius:8px;text-decoration:none}}</style></head><body>

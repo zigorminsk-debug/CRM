@@ -269,14 +269,27 @@ def _parse_and_setup() -> tuple[str, int, bool]:
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
-    # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
-    # (cp1252/cp866) — кириллица в сообщениях уронит print с UnicodeEncodeError.
-    # Принудительно переводим потоки вывода на UTF-8.
-    for _stream in (sys.stdout, sys.stderr):
+    try:
+        multiprocessing.freeze_support()      # корректный запуск собранного exe в Windows
+        # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
+        # (cp1252/cp866) — кириллица в сообщениях уронит print с UnicodeEncodeError.
+        # Принудительно переводим потоки вывода на UTF-8.
+        for _stream in (sys.stdout, sys.stderr):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+            except (AttributeError, ValueError, OSError):
+                pass
+        _console_tweaks()
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        # последняя линия обороны оконного exe: вместо диалога PyInstaller
+        # «Failed to execute script» показываем свою ошибку с трассировкой
+        import traceback
         try:
-            _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-        except (AttributeError, ValueError, OSError):
+            _fatal("Ошибка запуска сервера:\n\n" + traceback.format_exc(),
+                   "Cartridge Engineer — ошибка запуска")
+        except Exception:
             pass
-    _console_tweaks()
-    main()
+        raise SystemExit(1)

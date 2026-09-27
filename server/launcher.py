@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import socket
 import threading
@@ -65,7 +66,18 @@ class ControlPanel:
 
     # ------------------------------------------------------------ интерфейс
     def _build(self) -> None:
-        self.root.title("Cartridge Engineer — сервер заявок")
+        try:
+            from app import updates
+            version = updates.version_info()["version"]
+        except Exception:
+            version = ""
+        self.root.title("Cartridge Engineer — сервер заявок" + (f" (версия {version})" if version else ""))
+        try:
+            icon = os.path.join(_runtime.bundle_root(), "app.ico")
+            if os.path.exists(icon):
+                self.root.iconbitmap(icon)
+        except Exception:
+            pass
         self.root.minsize(560, 380)
 
         top = ttk.Frame(self.root, padding=(10, 8))

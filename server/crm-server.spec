@@ -18,6 +18,7 @@ datas = [
     (os.path.join(SPEC_DIR, "app", "data", "minsk_streets.csv"), "app/data"),
     (os.path.join(ROOT, "VERSION"), "."),
     (os.path.join(SPEC_DIR, "build", "BUILD"), "."),
+    (os.path.join(ROOT, "icons", "app.ico"), "."),
 ]
 
 a = Analysis(
@@ -67,4 +68,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=os.path.join(ROOT, "icons", "app.ico"),   # значок CRM-Server.exe
 )
