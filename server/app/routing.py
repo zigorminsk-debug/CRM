@@ -69,7 +69,8 @@ def plan_day(engineer_id: int, day: date | None = None, persist: bool = False) -
     tasks = day_tasks(engineer_id, day)
     if not tasks:
         return {"ok": True, "day": day.isoformat(), "engineer": eng, "route": [], "total_km": 0.0,
-                "total_minutes": 0, "overflow": [], "deliveries": deliveries_for(engineer_id, day)}
+                "total_minutes": 0, "total_hours": 0.0, "overflow": [],
+                "deliveries": deliveries_for(engineer_id, day)}
 
     start = _start_point(eng)
     start_clock = db.setting("workday_start", "09:00")
