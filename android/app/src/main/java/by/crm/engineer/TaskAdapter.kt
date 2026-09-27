@@ -65,7 +65,14 @@ class TaskAdapter(
                 else -> COLOR_NORMAL
             }
         )
-        holder.eta.text = if (t.eta.isNotEmpty()) "прибытие ~${t.eta}" else ""
+        holder.eta.text = buildString {
+            if (t.timeWindow.isNotBlank()) append(t.timeWindow)
+            if (t.eta.isNotEmpty()) {
+                if (isNotEmpty()) append("  ·  ")
+                append("прибытие ~${t.eta}")
+            }
+        }
+        holder.eta.visibility = if (holder.eta.text.isBlank()) View.GONE else View.VISIBLE
         holder.work.text = t.work
         holder.address.text = t.address
         holder.contact.text = buildString {
@@ -74,9 +81,16 @@ class TaskAdapter(
             if (t.legKm > 0) append(" · ${t.legKm} км / ${t.driveMinutes} мин")
         }
         // клик по строке контакта — звонок через штатную звонилку
-        holder.contact.setOnClickListener { v ->
-            val p = t.phone.replace(Regex("[^+0-9]"), "")
-            if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
+        if (t.phone.isNotBlank()) {
+            holder.contact.setTextColor(0xFF1D4ED8.toInt())
+            holder.contact.paint.isUnderlineText = true
+            holder.contact.setOnClickListener { v ->
+                val p = t.phone.replace(Regex("[^+0-9]"), "")
+                if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
+            }
+        } else {
+            holder.contact.paint.isUnderlineText = false
+            holder.contact.setOnClickListener(null)
         }
         holder.comment.text = t.comment
         holder.comment.visibility = if (t.comment.isBlank()) View.GONE else View.VISIBLE

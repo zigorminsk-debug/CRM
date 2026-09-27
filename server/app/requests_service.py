@@ -107,14 +107,15 @@ def create_request(data: dict, actor: str = "client", source: str = "win") -> di
     rid = db.execute(
         """INSERT INTO requests(number,created_at,created_by,contractor_id,contractor,unp,bank_account,
              contact_person,phone,work_id,priority,address,lat,lon,zone_id,comment,equipment,serial,
-             status,engineer_id,assigned_by,assigned_at,planned_date,minutes_planned,source)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             status,engineer_id,assigned_by,assigned_at,planned_date,minutes_planned,source,time_from,time_to)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (number, db.now(), actor, contractor_id, norm["contractor"], norm["unp"], norm["bank_account"],
          norm["contact_person"], norm["phone"], work["id"], norm["priority"], norm["address"], lat, lon,
          zone_id, data.get("comment") or "", data.get("equipment") or None, data.get("serial") or None,
          "assigned" if engineer else "new", engineer["id"] if engineer else None,
          "auto:zone" if engineer else None, db.now() if engineer else None,
-         planned, work["default_minutes"], source))
+         planned, work["default_minutes"], source,
+         data.get("time_from") or None, data.get("time_to") or None))
 
     _event(rid, actor, None, "assigned" if engineer else "new",
            f"Заявка принята ({'Windows-клиент' if source == 'win' else source})",
@@ -228,6 +229,7 @@ def search(filters: dict, limit: int = 200, offset: int = 0) -> dict:
     rows = db.rows2dicts(db.q(
         f"""SELECT r.id, r.number, r.created_at, r.contractor, r.unp, r.bank_account, r.contact_person,
                    r.phone, r.priority, r.status, r.address, r.lat, r.lon, r.planned_date, r.done_at,
+                   r.time_from, r.time_to,
                    r.comment, r.visit_result, w.name AS work_name, z.name AS zone_name,
                    e.full_name AS engineer_name {base}
             ORDER BY {order} LIMIT ? OFFSET ?""", (*args, limit, offset)))
@@ -263,8 +265,9 @@ def change_status(rid: int, status: str, actor: str, comment: str = "", visit_re
     allowed = {
         "assigned": {"new", "postponed", "assigned", "in_progress"},
         "in_progress": {"assigned", "new", "postponed", "in_progress"},
-        "done_onsite": {"in_progress"},
-        "pickup_office": {"in_progress"},
+        # «Готово» инженер может отметить сразу после назначения — не только в пути
+        "done_onsite": {"new", "assigned", "in_progress", "postponed"},
+        "pickup_office": {"new", "assigned", "in_progress", "postponed"},
         "postponed": {"assigned", "new", "postponed"},
         "cancelled": ACTIVE_STATUSES,
         "closed": {"done_onsite", "delivered"},

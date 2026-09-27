@@ -106,29 +106,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** История: исполненные заявки инженера (done/closed) с последнего визита. */
+    /** История: исполненные заявки инженера (done/closed), свежие сверху. */
     private fun showHistory() {
         apiCall({
             val res = api.history()
             val arr = res.optJSONArray("items") ?: org.json.JSONArray()
-            val lines = mutableListOf<String>()
+            val titles = mutableListOf<String>()
+            val subs = mutableListOf<String>()
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val done = o.optString("done_at")
-                lines.add(
-                    (if (done.length >= 10) done.substring(0, 10) else o.optString("planned_date")) +
-                        " · " + o.optString("number") + " · " + o.optString("status_label") + "\n" +
-                        o.optString("work_name") + "\n" + o.optString("address")
-                )
+                val d = if (done.length >= 10) done.substring(0, 10) else o.optString("planned_date")
+                titles.add("${o.optString("number")} · ${o.optString("status_label")} · $d")
+                subs.add(listOf(o.optString("work_name"), o.optString("address"))
+                    .filter { it.isNotBlank() }.joinToString(" · "))
             }
             runOnUiThread {
-                val dlg = AlertDialog.Builder(this)
-                if (lines.isEmpty()) {
-                    dlg.setTitle("История").setMessage("Исполненных заявок пока нет.")
+                if (titles.isEmpty()) {
+                    AlertDialog.Builder(this).setTitle("История")
+                        .setMessage("Исполненных заявок пока нет.")
                         .setPositiveButton("Закрыть", null).show()
                 } else {
-                    dlg.setTitle("Исполненные заявки: ${lines.size}")
-                        .setItems(lines.toTypedArray(), null)
+                    val adapter = object : android.widget.ArrayAdapter<String>(
+                        this, android.R.layout.simple_list_item_2, titles
+                    ) {
+                        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                            val v = super.getView(position, convertView, parent)
+                            val sub = v.findViewById<TextView>(android.R.id.text2)
+                            sub.text = subs[position]
+                            return v
+                        }
+                    }
+                    AlertDialog.Builder(this)
+                        .setTitle("Исполненные заявки: ${titles.size}")
+                        .setAdapter(adapter, null)
                         .setPositiveButton("Закрыть", null).show()
                 }
             }
@@ -235,19 +246,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pickDay() {
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_DATETIME
-            setText(day)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Маршрут на дату (ГГГГ-ММ-ДД)")
-            .setView(input)
-            .setPositiveButton("Показать") { _, _ ->
-                day = input.text.toString().trim().ifBlank { day }
-                refresh()
-            }
-            .setNegativeButton("Отмена", null)
-            .show()
+        val cal = java.util.Calendar.getInstance()
+        try {
+            val parts = day.split("-").map { it.toInt() }
+            if (parts.size == 3) cal.set(parts[0], parts[1] - 1, parts[2])
+        } catch (_: Exception) { }
+        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
+            day = String.format("%04d-%02d-%02d", y, m + 1, dOfM)
+            refresh()
+        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
 
     private fun openFullRoute() {
@@ -304,18 +312,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun postponeDialog(task: Task) {
-        val input = EditText(this).apply { setText(day) }
-        AlertDialog.Builder(this)
-            .setTitle("Перенести заявку на дату (ГГГГ-ММ-ДД)")
-            .setView(input)
-            .setPositiveButton("Перенести") { _, _ ->
-                apiCall({ api.postponeTask(task.id, input.text.toString().trim(), "Перенос из мобильного приложения") }) {
-                    toast("Заявка перенесена")
-                    refresh()
-                }
+        val cal = java.util.Calendar.getInstance()
+        try {
+            val parts = day.split("-").map { it.toInt() }
+            if (parts.size == 3) cal.set(parts[0], parts[1] - 1, parts[2])
+        } catch (_: Exception) { }
+        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
+            val nd = String.format("%04d-%02d-%02d", y, m + 1, dOfM)
+            apiCall({ api.postponeTask(task.id, nd, "Перенос из мобильного приложения") }) {
+                toast("Заявка перенесена на $nd")
+                refresh()
             }
-            .setNegativeButton("Отмена", null)
-            .show()
+        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
 
     private fun postponeDeliveryDialog(d: Delivery) {
@@ -335,28 +344,32 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ детали
     private fun showDetails(t: Task) {
-        val text = buildString {
-            append("Контрагент: ${t.contractor}\n")
-            append("Контактное лицо: ${t.contact}\n")
-            append("Телефон: ${t.phone}\n")
-            append("Работа: ${t.work}\n")
-            append("Срочность: ${t.priorityLabel}\n")
-            append("Статус: ${t.statusLabel}\n")
-            if (t.zone.isNotBlank()) append("Район: ${t.zone}\n")
-            append("Адрес: ${t.address}\n")
-            if (t.equipment.isNotBlank()) append("Оборудование: ${t.equipment} ${t.serial}\n")
-            if (t.plannedDate.isNotBlank()) append("Плановая дата: ${t.plannedDate}\n")
-            if (t.comment.isNotBlank()) append("\nПояснение: ${t.comment}")
-        }
-        AlertDialog.Builder(this)
-            .setTitle("${t.number} — ${t.work}")
-            .setMessage(text)
-            .setPositiveButton("Поехали") { _, _ -> go(t) }
-            .setNeutralButton("Позвонить") { _, _ ->
-                startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${t.phone.replace(" ", "")}")))
+        val html = buildString {
+            append("Контрагент: ${t.contractor}<br>")
+            append("Контактное лицо: ${t.contact}<br>")
+            if (t.phone.isNotBlank()) {
+                val p = t.phone.replace(Regex("[^+0-9]"), "")
+                append("Телефон: <a href=\"tel:$p\"><b>${t.phone}</b></a><br>")
             }
+            append("Работа: ${t.work}<br>")
+            append("Срочность: ${t.priorityLabel}<br>")
+            append("Статус: ${t.statusLabel}<br>")
+            if (t.timeWindow.isNotBlank()) append("Окно визита: ${t.timeWindow}<br>")
+            if (t.zone.isNotBlank()) append("Район: ${t.zone}<br>")
+            append("Адрес: ${t.address}<br>")
+            if (t.equipment.isNotBlank()) append("Оборудование: ${t.equipment} ${t.serial}<br>")
+            if (t.plannedDate.isNotBlank()) append("Плановая дата: ${t.plannedDate}<br>")
+            if (t.comment.isNotBlank()) append("<br>Пояснение: ${t.comment}")
+        }
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("${t.number} — ${t.work}")
+            .setMessage(android.text.Html.fromHtml(html.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
+            .setPositiveButton("Поехали") { _, _ -> go(t) }
             .setNegativeButton("Закрыть", null)
             .show()
+        // телефон в тексте кликабелен: открывается штатная звонилка
+        dlg.findViewById<TextView>(android.R.id.message)?.movementMethod =
+            android.text.method.LinkMovementMethod.getInstance()
     }
 
     // --------------------------------------------------------- многопоточность

@@ -90,6 +90,8 @@ class RequestIn(BaseModel):
     email: str | None = None
     bank_name: str | None = None
     planned_date: str | None = None
+    time_from: str | None = Field(None, description="Окно визита «с», ЧЧ:ММ")
+    time_to: str | None = Field(None, description="Окно визита «по», ЧЧ:ММ")
 
 
 class StatusIn(BaseModel):
@@ -492,7 +494,7 @@ def api_engineer_history(engineer_id: int | None = None, limit: int = 100,
     """Исполненные заявки инженера (для кнопки «История» в Android)."""
     eid = _engineer_id_of(user, engineer_id)
     rows = db.q("""SELECT r.id, r.number, r.status, r.address, r.contractor, r.phone,
-                          r.planned_date, r.done_at, r.created_at, w.name AS work_name
+                          r.planned_date, r.time_from, r.time_to, r.done_at, r.created_at, w.name AS work_name
                    FROM requests r JOIN works w ON w.id=r.work_id
                    WHERE r.engineer_id=? AND r.status IN ('done_onsite','delivered','closed')
                    ORDER BY COALESCE(r.done_at, r.planned_date) DESC LIMIT ?""", (eid, limit))
@@ -519,7 +521,8 @@ def api_engineer_tasks(day: str | None = None, engineer_id: int | None = None,
     tasks = db.rows2dicts(db.q(
         """SELECT r.id, r.number, r.priority, r.status, r.address, r.lat, r.lon, r.contact_person, r.phone,
                   r.comment, r.contractor, r.unp, r.bank_account, r.planned_date, r.equipment, r.serial,
-                  w.name AS work_name, w.site_kind, z.name AS zone_name
+                  w.name AS work_name, w.site_kind, z.name AS zone_name,
+                  r.time_from, r.time_to
            FROM requests r JOIN works w ON w.id=r.work_id LEFT JOIN zones z ON z.id=r.zone_id
            WHERE r.engineer_id=? AND r.status IN ('new','assigned','in_progress','postponed','pickup_office')
            ORDER BY CASE r.priority WHEN 'emergency' THEN 0 WHEN 'urgent' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, r.id""",

@@ -182,6 +182,8 @@ CREATE TABLE IF NOT EXISTS requests (
     assigned_by    TEXT,
     assigned_at    TEXT,
     planned_date   TEXT,
+    time_from      TEXT,
+    time_to        TEXT,
     done_at        TEXT,
     visit_result   TEXT,
     minutes_planned INTEGER,
@@ -296,10 +298,21 @@ def get_conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            _migrate_requests(_conn)
             _migrate(_conn)
             _conn.commit()
         return _conn
 
+
+def _migrate_requests(conn: sqlite3.Connection) -> None:
+    """Окно визита «с … по …» — колонки для баз, созданных раньше этой фичи."""
+    info = conn.execute("PRAGMA table_info(requests)").fetchall()
+    if not info:
+        return
+    cols = {r[1] for r in info}
+    for col in ("time_from", "time_to"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Обновление структуры старых баз (созданных до добавления роли client).

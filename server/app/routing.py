@@ -119,7 +119,7 @@ def plan_day(engineer_id: int, day: date | None = None, persist: bool = False) -
             **{k: task[k] for k in ("id", "number", "priority", "status", "address", "lat", "lon",
                                     "contact_person", "phone", "comment", "contractor_name", "unp",
                                     "bank_account", "work_name", "equipment", "serial", "planned_date",
-                                    "contractor")},
+                                    "time_from", "time_to", "contractor")},
             "order": idx,
             "priority_label": PRIORITY_LABEL.get(task["priority"], task["priority"]),
             "status_label": STATUS_LABEL.get(task["status"], task["status"]),

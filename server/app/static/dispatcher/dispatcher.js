@@ -155,19 +155,50 @@ $('#r-contractor').addEventListener('input', () => {
       contractorCache = await api('/api/contractors?q=' + encodeURIComponent(q));
       const dl = $('#dl-contractors'); dl.innerHTML = '';
       for (const c of contractorCache) dl.append(el('option', { value: c.name }, c.unp ? ('УНП ' + c.unp + (c.phone ? ' · ' + c.phone : '')) : ''));
+      const exact = contractorCache.find((x) => x.name.toLowerCase() === q.toLowerCase());
+      if (exact) autofillContractor(exact);
     } catch (e) { /* подсказки не критичны */ }
   }, 200);
 });
-$('#r-contractor').addEventListener('change', () => {
-  const name = $('#r-contractor').value.trim().toLowerCase();
-  const c = contractorCache.find((x) => x.name.toLowerCase() === name);
+/* Разбираем сохранённый адрес на поля: НП / улица / дом / кв-офис. */
+function splitAddress(addr) {
+  const out = { settlement: '', street: '', house: '', office: '' };
+  if (!addr) return out;
+  let rest = addr.trim();
+  const off = rest.match(/,\s*(кв\.?|оф(?:ис)?\.?|оф)\s*([^,]+)$/i);
+  if (off) { out.office = off[2].trim(); rest = rest.slice(0, off.index); }
+  const house = rest.match(/,\s*(?:д\.?\s*|дом\s*)?([0-9]+[А-Яа-яA-Za-zа-яё]?(?:\/[0-9]+)?)\s*$/);
+  if (house) { out.house = house[1].trim(); rest = rest.slice(0, house.index); }
+  const street = rest.match(/(ул|ул\.|улица|пр|пр-т|проспект|пер|переулок|б-р|бульвар|шоссе|пл|площадь)\.?\s*([^,]+)/i);
+  if (street) {
+    out.street = street[2].trim();
+    rest = rest.slice(0, street.index);
+  }
+  out.settlement = rest.replace(/,\s*$/, '').trim();
+  return out;
+}
+
+function autofillContractor(c) {
   if (!c) return;
   if (c.unp) $('#r-unp').value = c.unp;
   if (c.bank_account) $('#r-account').value = c.bank_account;
   if (c.bank_name) $('#r-bank').value = c.bank_name;
   if (c.contact_person) $('#r-contact').value = c.contact_person;
   if (c.phone) { $('#r-phone').value = c.phone; $('#r-phone').dispatchEvent(new Event('blur')); }
-  toast('Реквизиты подставлены из прошлой заявки: ' + c.name, 4000);
+  if (c.address) {
+    const a = splitAddress(c.address);
+    if (a.settlement) $('#r-settlement').value = a.settlement;
+    if (a.street) $('#r-street').value = a.street;
+    if (a.house) $('#r-house').value = a.house;
+    if (a.office) $('#r-office').value = a.office;
+    updateAddrPreview();
+  }
+  toast('Данные контрагента подставлены из прошлой заявки', 4000);
+}
+
+$('#r-contractor').addEventListener('change', () => {
+  const name = $('#r-contractor').value.trim().toLowerCase();
+  autofillContractor(contractorCache.find((x) => x.name.toLowerCase() === name));
 });
 
 /* Населённый пункт: подсказки (Минск + Минская область). */
@@ -208,6 +239,7 @@ $('#r-clear').onclick = () => {
    '#r-equipment', '#r-serial', '#r-comment'].forEach((s) => { $(s).value = ''; });
   $('#r-priority').value = 'normal';
   $('#r-date').value = new Date().toISOString().slice(0, 10);
+  $('#r-time-from').value = ''; $('#r-time-to').value = '';
   $('#r-geo-result').textContent = '';
 };
 
@@ -220,6 +252,8 @@ $('#r-submit').onclick = async () => {
     address: buildAddress(), equipment: $('#r-equipment').value.trim() || null,
     serial: $('#r-serial').value.trim() || null, comment: $('#r-comment').value.trim(),
     planned_date: $('#r-date').value || null,
+    time_from: $('#r-time-from').value || null,
+    time_to: $('#r-time-to').value || null,
   };
   $('#r-submit').disabled = true;
   try {
@@ -247,7 +281,8 @@ async function loadRequests() {
     tb.append(el('tr', {},
       el('td', {}, el('b', {}, r.number)),
       el('td', {}, fmtDT(r.created_at)),
-      el('td', {}, r.planned_date || '—'),
+      el('td', {}, (r.planned_date || '—')
+        + (r.time_from ? ` ${r.time_from}–${r.time_to || '?'}` : '')),
       el('td', {}, r.contractor),
       el('td', {}, r.work_name),
       el('td', {}, badge(r.priority, r.priority_label)),
@@ -285,7 +320,8 @@ async function openRequest(id) {
     el('div', {}, 'Работа'), el('div', {}, r.work_name),
     el('div', {}, 'Срочность'), el('div', {}, badge(r.priority, r.priority_label)),
     el('div', {}, 'Адрес'), el('div', {}, r.address + (r.lat ? ` (${r.lat.toFixed(5)}, ${r.lon.toFixed(5)})` : '')),
-    el('div', {}, 'Дата исполнения'), el('div', {}, r.planned_date || '—'),
+    el('div', {}, 'Дата исполнения'), el('div', {}, (r.planned_date || '—')
+      + (r.time_from ? `  ${r.time_from}–${r.time_to || '?'}` : '')),
     el('div', {}, 'Район (зона)'), el('div', {}, r.zone_name || 'не определён'),
     el('div', {}, 'Инженер'), el('div', {}, r.engineer_name || '— не назначен —'),
     el('div', {}, 'Оборудование'), el('div', {}, (r.equipment || '—') + (r.serial ? ' / ' + r.serial : '')),
@@ -340,6 +376,7 @@ async function boot() {
   await fillSelects();
   attachPhoneInput('#r-phone', '#r-phone-hint');
   $('#r-date').value = new Date().toISOString().slice(0, 10);
+  $('#r-time-from').value = ''; $('#r-time-to').value = '';
   loadRequests();
   clearInterval(S.timer);
   S.timer = setInterval(() => { if ($('#live').checked && $('#tab-list').classList.contains('active')) loadRequests(); }, 30000);

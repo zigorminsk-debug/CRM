@@ -53,6 +53,12 @@
         <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">Дата исполнения
           <input type="date" id="r-date">
         </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">Время с
+          <input type="time" id="r-time-from" style="max-width:110px">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">по
+          <input type="time" id="r-time-to" style="max-width:110px">
+        </label>
         <input id="r-settlement" list="dl-settlements" placeholder="Населённый пункт * (начните вводить)" style="max-width:230px" autocomplete="off">
         <datalist id="dl-settlements"></datalist>
         <input id="r-street" list="dl-streets" placeholder="Улица / проспект / пер. * (начните вводить)" style="max-width:290px" autocomplete="off">
