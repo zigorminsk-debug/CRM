@@ -669,15 +669,34 @@ def _download_file(candidates: tuple) -> str:
 
 @app.get("/api/downloads")
 def api_downloads() -> list[dict]:
+    """Файлы для раздачи: подписанные сборки из последнего релиза GitHub, иначе — локальные.
+
+    exe и APK всегда берутся из релиза (там их собрал CI и подписал постоянным ключом),
+    архивы сервера и исходников — с диска сервера, если они там есть.
+    """
+    latest = updates.release_info() or {}
+    release_keys = {"win": "windows", "apk": "android", "server": "server", "src": "sources"}
+    prefer_release = {"win", "apk"}
     out = []
     for key, (candidates, title) in DOWNLOAD_FILES.items():
         fname = _download_file(candidates)
         path = os.path.join(DOWNLOAD_DIR, fname)
-        out.append({
-            "key": key, "file": fname, "title": title, "available": os.path.exists(path),
-            "size": os.path.getsize(path) if os.path.exists(path) else 0,
-            "url": f"/download/{fname}" if os.path.exists(path) else None,
-        })
+        exists = os.path.isfile(path)
+        rel = latest.get(release_keys.get(key, key)) or {}
+        item = {
+            "key": key, "file": fname, "title": title,
+            "available": exists, "size": os.path.getsize(path) if exists else 0,
+            "url": f"/download/{fname}" if exists else None,
+            "source": "на сервере" if exists else "", "sha256": "",
+            "local_url": f"/download/{fname}" if exists else None,
+            "release_url": rel.get("url", ""),
+            "release_version": latest.get("version", ""),
+        }
+        if rel.get("url") and (key in prefer_release or not exists):
+            item.update(available=True, size=rel.get("size", 0), url=rel["url"],
+                        sha256=rel.get("sha256", ""),
+                        source=f"релиз {latest.get('tag') or latest.get('version', '')}".strip())
+        out.append(item)
     return out
 
 
@@ -695,7 +714,11 @@ def downloads_page() -> HTMLResponse:
     items = api_downloads()
     rows = "".join(
         f'<li><b>{i["title"]}</b> — <code>{i["file"]}</code> '
-        + (f'({i["size"]//1024} КБ) <a href="{i["url"]}">скачать</a>' if i["available"] else '— не найден на сервере')
+        + (f'({i["size"]//1024} КБ, {i["source"]}) <a href="{i["url"]}">скачать</a>'
+           + (f'<br><small>SHA-256: <code>{i["sha256"]}</code></small>' if i.get("sha256") else "")
+           + (f'<br><small>копия на этом сервере: <a href="{i["local_url"]}">скачать</a></small>'
+              if i.get("local_url") and i["url"] != i["local_url"] else "")
+           if i["available"] else '— файл ещё не собран')
         + "</li>" for i in items)
     return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <title>Загрузки CRM</title><style>body{{font:15px system-ui;margin:40px;max-width:760px}}

@@ -28,6 +28,15 @@ MANIFEST_URL = os.environ.get(
 )
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 TTL = int(os.environ.get("CRM_UPDATE_TTL", "600"))       # кэш манифеста, секунд
+
+# Соответствие «ключ раздачи → имя файла в релизе» (используется и клиентами, и страницей /downloads)
+ASSET_FILES = {
+    "windows": "CRM-Windows.exe",
+    "android": "CRM-Engineer.apk",
+    "server": "crm-server.zip",
+    "sources": "crm-sources.zip",
+    "readme": "README.txt",
+}
 TIMEOUT = float(os.environ.get("CRM_UPDATE_TIMEOUT", "6"))
 
 # Каталоги, где может лежать файл версии: корень репозитория (VERSION) или
@@ -107,6 +116,12 @@ def manifest_url() -> str:
     return MANIFEST_URL
 
 
+def _build_from_version(version: str) -> int:
+    """Номер сборки из версии вида 1.0.57 (нужен, если манифест получен через GitHub API)."""
+    tail = version.split(".")[-1] if version else ""
+    return int(tail) if tail.isdigit() else 0
+
+
 def _fetch(url: str) -> dict:
     req = urllib.request.Request(url, headers={
         "User-Agent": f"CRM-server/{version_info()['version']}",
@@ -133,8 +148,10 @@ def release_info(force: bool = False) -> dict:
         error = f"{type(exc).__name__}: {exc}"
         try:
             rel = _fetch(API_URL)            # запасной путь: GitHub API
+            version = str(rel.get("tag_name", "")).lstrip("v")
             data = {
-                "version": str(rel.get("tag_name", "")).lstrip("v"),
+                "version": version,
+                "build": _build_from_version(version),
                 "tag": rel.get("tag_name", ""),
                 "notes": rel.get("body", ""),
                 "released_at": rel.get("published_at", ""),
@@ -142,13 +159,22 @@ def release_info(force: bool = False) -> dict:
                 "source": "github api",
             }
             assets = {a.get("name", ""): a for a in rel.get("assets", [])}
-            for key, name in (("windows", "CRM-Windows.exe"), ("android", "CRM-Engineer.apk")):
+            for key, name in ASSET_FILES.items():
                 if name in assets:
-                    data[key] = {"file": name, "url": assets[name].get("browser_download_url", ""),
-                                 "size": assets[name].get("size", 0)}
+                    digest = str(assets[name].get("digest") or "")
+                    data[key] = {
+                        "file": name,
+                        "url": assets[name].get("browser_download_url", ""),
+                        "size": assets[name].get("size", 0),
+                        # GitHub API отдаёт контрольную сумму файла: sha256:xxxx
+                        "sha256": digest.split(":", 1)[1] if digest.startswith("sha256:") else "",
+                    }
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as exc2:
             error = f"{error} | {type(exc2).__name__}: {exc2}"
 
+    if data is not None and not data.get("build"):
+        # в манифесте номер сборки есть всегда; при запасном пути берём его из версии
+        data["build"] = _build_from_version(str(data.get("version", "")))
     if data is not None:
         _cache.update(at=now, data=data, error="")
     elif _cache["data"]:
