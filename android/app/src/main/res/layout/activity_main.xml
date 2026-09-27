@@ -11,7 +11,7 @@
         android:orientation="vertical"
         android:padding="12dp">
 
-        <!-- ------------------------------ вход ------------------------------ -->
+        <!-- ===== вход ===== -->
         <LinearLayout
             android:id="@+id/loginPanel"
             android:layout_width="match_parent"
@@ -78,7 +78,7 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- ------------------------------ маршрут ------------------------------ -->
+        <!-- ===== маршрут ===== -->
         <LinearLayout
             android:id="@+id/mainPanel"
             android:layout_width="match_parent"
