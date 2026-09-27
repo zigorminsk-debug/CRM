@@ -12,6 +12,9 @@
   готовность **«на месте»** или **«забор в офис»**.
 * **Веб-админка (`/admin`)** — зоны, инженеры, отпуска и замены, справочник работ, отчёты, журнал.
 * **Мобильная PWA (`/m`)** — тот же функционал инженера без установки APK (можно добавить на главный экран).
+* **Автообновление с GitHub** — сборки собираются в GitHub Actions при каждом изменении, релизу
+  присваивается собственный номер версии, а клиенты сами скачивают и ставят новую сборку
+  **поверх установленной** (подпись постоянным ключом, см. `signing/README.md`).
 
 ```
   Windows-клиент (exe)                 Сервер (FastAPI + SQLite)                Приложение инженера
@@ -116,6 +119,45 @@ cd winclient
 
 ---
 
+## 2.1 Сборки, версии и автообновление
+
+**Сборка.** Всё собирается на GitHub: `.github/workflows/release.yml` запускается при каждом
+изменении в ветке (и на предложениях изменений), проверяет сервер сквозным тестом и автотестом
+клиента, затем собирает exe (zig) и APK (Android SDK) и подписывает их постоянными ключами.
+
+**Номер версии.** Схема `MAJOR.MINOR.<номер сборки>`: `MAJOR.MINOR` — из файла `VERSION`,
+номер сборки — номер запуска Actions (`GITHUB_RUN_NUMBER`), поэтому **у каждого релиза свой номер**:
+`1.0.57`, `1.0.58`, … Локально номер можно задать самому:
+
+```bash
+python3 tools/version.py               # 1.0.57
+CRM_BUILD_NUMBER=100 python3 tools/version.py   # 1.0.100
+```
+
+**Релиз.** Из ветки `main` workflow публикует GitHub Release с тегом `v<версия>` и файлами
+`CRM-Windows.exe`, `CRM-Engineer.apk`, `update.json`, `crm-server.zip`, `crm-sources.zip`, `README.txt`.
+Адрес манифеста постоянный:
+`https://github.com/<owner>/CRM/releases/latest/download/update.json`.
+
+**Автообновление.**
+* Сервер читает манифест и отдаёт его клиентам на `GET /api/updates` (есть кэш и запасной путь
+  через GitHub API). Ещё есть `GET /api/version` — версия сервера и адрес манифеста.
+* Windows-клиент при запуске (настройка «Проверять обновления при запуске») и по кнопке
+  «Обновление клиента» сравнивает номер сборки, скачивает exe, проверяет SHA-256 и после закрытия
+  окна подменяет файл, перезапускаясь на новой версии.
+* Приложение инженера проверяет то же по `/api/updates`, скачивает APK, сверяет SHA-256 и отдаёт
+  системному установщику — Android ставит обновление поверх (подпись тем же ключом).
+* Если GitHub недоступен, обе программы сообщают об этом и продолжают работу на текущей версии.
+
+**Проверка релиза вручную:**
+
+```bash
+curl -s http://<IP сервера>:8000/api/updates | python3 -m json.tool | head -20
+gh release list --repo <owner>/CRM
+```
+
+---
+
 ## 3. Что где лежит
 
 ```
@@ -131,27 +173,52 @@ server/                 сервер: FastAPI + SQLite
   app/data/minsk_streets.csv  локальный справочник адресов (офлайн-геокодирование)
   app/static/admin/     веб-админка диспетчера
   app/static/mobile/    мобильное приложение инженера (PWA)
+  app/updates.py        версии и автообновление: манифест релиза GitHub для /api/updates
   tests/e2e_test.py     сквозной тест всей цепочки (39 проверок)
-winclient/              Windows-клиент на C++/Win32 (WinHTTP), исходники + сборка exe
-android/                приложение инженера для Android (Kotlin)
-downloads/              готовые файлы для раздачи (exe, архивы исходников)
+winclient/              Windows-клиент на C++/Win32 (WinHTTP): форма, автообновление, сборка exe
+  build_windows.sh      сборка exe: версия, ресурсы, подпись постоянным ключом
+android/                приложение инженера для Android (Kotlin): Updater.kt — автообновление APK
+  build_apk.sh          сборка и подпись APK
+signing/                постоянные ключи подписи (Android .p12, Windows .pfx) и инструкция
+tools/version.py        единая версия всех приложений (MAJOR.MINOR + номер сборки)
+tools/make_update_json.py  манифест автообновления update.json
+tools/pack_downloads.py    пакеты для раздачи (архивы сервера и исходников)
+.github/workflows/      сборка exe и APK в Actions, тесты, выпуск релизов
+downloads/              готовые файлы для раздачи (создаются pack_downloads.py)
 ```
 
 ## 4. Сборка и проверка
+
+Автоматически (как в эксплуатации): пуш в ветку → `.github/workflows/release.yml` собирает
+подписанный exe и APK, прогоняет тесты, а для ветки `main` публикует релиз `v<версия>`
+и манифест `update.json`.
+
+Вручную:
 
 ```bash
 # сквозной тест системы (сервер должен быть запущен)
 python3 server/tests/e2e_test.py http://127.0.0.1:8000
 
-# автотест клиентской логики (валидация формы, геокод, отправка заявки, история)
+# автотест клиентской логики (валидация формы, геокод, отправка заявки, история, SHA-256)
 cd winclient && ./build_test.sh http://127.0.0.1:8000
 
-# сборка exe
-cd winclient && ./build_windows.sh zig
+# exe: версия + ресурсы + подпись постоянным ключом
+cd winclient
+SIGN_PFX=../signing/windows-signing.pfx SIGN_PFX_PASS=crm-windows-key-2026 ./build_windows.sh zig
 
-# упаковка раздаточных файлов
-python3 tools/pack_downloads.py
+# APK: версия + подпись постоянным ключом (нужны JDK 17 и Android SDK)
+cd android
+CRM_KEYSTORE_FILE=../signing/android-release.p12 CRM_KEYSTORE_PASSWORD=crm-android-key-2026 \
+  CRM_KEY_ALIAS=crm-engineer ./build_apk.sh
+
+# пакеты для раздачи + манифест обновления
+cd .. && CRM_BUILD_NUMBER=$(git rev-list --count HEAD) python3 tools/pack_downloads.py
+python3 tools/make_update_json.py --version "$(python3 tools/version.py)" \
+  --build "$(python3 tools/version.py --code)" --repo <owner>/CRM \
+  --tag "v$(python3 tools/version.py)" --dir downloads
 ```
+
+Релиз создаётся одной командой `gh release create v<версия> downloads/*`.
 
 ## 5. Требования и эксплуатация
 
@@ -164,6 +231,10 @@ python3 tools/pack_downloads.py
   а ключ Яндекс.Геокодера (админка → «Настройки») даёт точность до дома, когда связь есть.
 * Роли: `admin` — всё, `operator` — заявки/зоны/отпуска без управления пользователями,
   `engineer` — только свои заявки и маршрут.
+* Ключи подписи и переход на секреты GitHub: `signing/README.md`. Ключ Android менять нельзя —
+  иначе обновление «поверх» перестанет ставиться.
+* Переменные окружения сервера для автообновления: `CRM_UPDATE_REPO` (по умолчанию
+  `zigorminsk-debug/CRM`), `CRM_UPDATE_MANIFEST`, `CRM_UPDATE_TTL`, `CRM_UPDATE_TIMEOUT`.
 * Приём заявок (`POST /api/requests`) и геокодирование открыты без авторизации, чтобы Windows-клиент
   работал без входа. Если сервер смотрит в интернет, ограничьте доступ firewall'ом по IP офиса
   либо поставьте перед приложением nginx с basic-auth для пути `/api/requests`.
@@ -184,6 +255,10 @@ python3 tools/pack_downloads.py
 | GET | `/api/engineer/feed?since=` | лента событий (long-poll) для push-уведомлений |
 | GET/POST | `/api/admin/zones`, `/api/admin/assignments`, `/api/admin/absences`, `/api/admin/coverage` | зоны, закрепления, отпуска, покрытие |
 | GET | `/api/admin/reports/summary` | отчёты (статусы, инженеры, районы, работы, загрузка) |
+| DELETE | `/api/admin/absences/{id}` | отмена отпуска: зоны возвращаются прежнему инженеру |
+| GET | `/api/version` | версия сборки сервера и адрес манифеста обновления |
+| GET | `/api/updates` | последний релиз на GitHub: версия, ссылки, SHA-256 сборок |
+| GET | `/api/downloads`, `/download/{файл}` | файлы для раздачи (exe, APK, архивы) |
 
 Полная документация — `http://<сервер>:8000/docs`.
 

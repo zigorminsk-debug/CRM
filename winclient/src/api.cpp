@@ -1,5 +1,6 @@
 // api.cpp — вызовы REST API сервера CRM.
 #include "api.h"
+#include "hash.h"
 #include "http.h"
 #include <cstdio>
 
@@ -156,6 +157,55 @@ bool ApiClient::login(const std::string& user, const std::string& password) {
     Json j = Json::parse(r.body);
     token = j.getStr("token");
     return !token.empty();
+}
+
+bool ApiClient::checkUpdates(UpdateInfo& out) {
+    out = UpdateInfo();
+    HttpResponse r = httpRequest(base + "/api/updates", "GET", "", std::map<std::string, std::string>(), 25);
+    if (!r.ok) { lastError = errText(r); out.error = lastError; return false; }
+    Json j = Json::parse(r.body);
+    const Json* cur = j.find("current");
+    const Json* latest = j.find("latest");
+    if (cur) {
+        out.currentVersion = cur->getStr("version");
+        out.currentBuild = cur->getInt("build");
+    }
+    if (!latest || latest->isNull() || latest->type != Json::OBJ) {
+        out.error = j.getStr("error");
+        if (out.error.empty()) out.error = "Релизы на GitHub ещё не опубликованы";
+        return false;
+    }
+    out.latestVersion = latest->getStr("version");
+    out.latestBuild = latest->getInt("build");
+    out.notes = latest->getStr("notes");
+    out.page = latest->getStr("page");
+    const Json* win = latest->find("windows");
+    if (win && win->type == Json::OBJ) {
+        out.url = win->getStr("url");
+        out.sha256 = win->getStr("sha256");
+        out.size = (long long)win->getNum("size");
+    }
+    out.available = j.getBool("update_available", false) && !out.url.empty();
+    return true;
+}
+
+bool ApiClient::downloadUpdate(const UpdateInfo& u, const std::string& targetPath, std::string& error) {
+    if (u.url.empty()) { error = "В релизе нет файла для Windows"; return false; }
+    long long size = httpDownloadToFile(u.url, targetPath, error, 300);
+    if (size <= 0) { lastError = error; return false; }
+    if (!u.sha256.empty()) {
+        std::string hashErr;
+        std::string got = sha256File(targetPath, hashErr);
+        if (got.empty()) { error = hashErr; return false; }
+        if (!hexEqual(got, u.sha256)) {
+            error = "Контрольная сумма не совпала: ожидалось " + u.sha256.substr(0, 16) +
+                    "…, получено " + got.substr(0, 16) + "…";
+            return false;
+        }
+    }
+    char buf[128];
+    snprintf(buf, sizeof(buf), "Скачано %lld КБ, подпись файла проверена", size / 1024);
+    return true;
 }
 
 } // namespace crm

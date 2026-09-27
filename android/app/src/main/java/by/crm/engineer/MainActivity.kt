@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.refreshButton).setOnClickListener { refresh() }
         findViewById<Button>(R.id.dayButton).setOnClickListener { pickDay() }
         findViewById<Button>(R.id.routeAllButton).setOnClickListener { openFullRoute() }
+        findViewById<Button>(R.id.updateButton).setOnClickListener { checkUpdates(true) }
 
         taskAdapter = TaskAdapter(
             onGo = { task -> go(task) },
@@ -76,6 +77,27 @@ class MainActivity : AppCompatActivity() {
             refresh()
         }
         FeedService.start(this)
+        checkUpdates(false)     // обновления проверяем сами: сборки публикуются на GitHub
+    }
+
+    // ------------------------------------------------------------- обновления
+    /**
+     * Проверка новой версии: сервер берёт сведения из последнего релиза GitHub,
+     * приложение скачивает APK и ставит его поверх установленного (данные сохраняются).
+     */
+    private fun checkUpdates(manual: Boolean) {
+        Updater.check(this, silent = !manual) { info ->
+            AlertDialog.Builder(this)
+                .setTitle("Доступна версия ${info.version}")
+                .setMessage(
+                    "Установлена ${Updater.installedVersion(this).first}.\n\n" +
+                        (if (info.notes.isBlank()) "" else "Что нового:\n${info.notes}\n\n") +
+                        "Скачать и установить поверх установленной версии? Профиль инженера и настройки сохранятся."
+                )
+                .setPositiveButton("Обновить") { _, _ -> Updater.downloadAndInstall(this, info) }
+                .setNegativeButton("Позже", null)
+                .show()
+        }
     }
 
     override fun onResume() {

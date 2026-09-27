@@ -7,7 +7,10 @@
 //   3) адрес переводится в координаты и район (Минск и Минский район) —
 //      сервер определяет зону и инженера, отвечающего за неё;
 //   4) заявка отправляется на сервер по адресу http://<публичный IP>:<порт>;
-//   5) поиск по истории (контрагент, УНП, р/с) и повторный заказ в один клик.
+//   5) поиск по истории (контрагент, УНП, р/с) и повторный заказ в один клик;
+//   6) автообновление: при запуске клиент спрашивает у сервера последний релиз,
+//      скачивает CRM-Windows.exe с GitHub, проверяет SHA-256 и ставит поверх
+//      установленного файла (подпись — постоянным ключом проекта).
 //
 // Сборка (Linux, кросс-компилятор): см. build_windows.sh
 // Сборка (Windows, MinGW): x86_64-w64-mingw32-g++ -std=c++17 -O2 -DUNICODE -D_UNICODE
@@ -24,8 +27,17 @@
 #include <cstdio>
 
 #include "api.h"
+#include "hash.h"
 #include "http.h"
 #include "validate.h"
+
+// Версию подставляет build_windows.sh из tools/version.py (MAJOR.MINOR + номер сборки).
+#ifndef CRM_CLIENT_VERSION
+#define CRM_CLIENT_VERSION "1.0.0"
+#endif
+#ifndef CRM_CLIENT_BUILD
+#define CRM_CLIENT_BUILD 0
+#endif
 
 using namespace crm;
 
@@ -38,8 +50,8 @@ enum {
     IDC_BTN_CHECK, IDC_BTN_OPENMAP,
     IDC_STATIC_GEO, IDC_STATIC_STATUS, IDC_STATIC_SERVER,
     IDC_SEARCH_EDIT, IDC_SEARCH_KIND, IDC_BTN_SEARCH, IDC_LIST_HISTORY, IDC_BTN_FILL,
-    IDC_STATIC_FORM_ERR,
-    IDC_DLG_URL = 1500, IDC_DLG_URL_OK, IDC_DLG_URL_CANCEL, IDC_DLG_URL_TEST
+    IDC_STATIC_FORM_ERR, IDC_BTN_UPDATE, IDC_STATIC_VERSION,
+    IDC_DLG_URL = 1500, IDC_DLG_URL_OK, IDC_DLG_URL_CANCEL, IDC_DLG_URL_TEST, IDC_DLG_URL_AUTO
 };
 
 #define WM_APP_STATUS (WM_APP + 1)
@@ -64,6 +76,8 @@ static struct AppState {
     HFONT font = nullptr;
     bool serverOk = false;
     std::wstring clientName;   // имя оператора (для журнала на сервере)
+    bool updateOnStart = true; // проверять обновления при запуске (настройка)
+    UpdateInfo update;         // что рассказал сервер о последнем релизе
 } app;
 
 // ------------------------------------------------------- преобразования строк
@@ -113,10 +127,14 @@ static void settingsLoad() {
     wchar_t name[128] = L"";
     GetPrivateProfileStringW(L"client", L"operator", L"Оператор", name, 128, app.iniPath.c_str());
     app.clientName = name;
+
+    app.updateOnStart = GetPrivateProfileIntW(L"update", L"check_on_start", 1, app.iniPath.c_str()) != 0;
 }
 
 static void settingsSave() {
     WritePrivateProfileStringW(L"server", L"url", wide(app.serverUrl).c_str(), app.iniPath.c_str());
+    WritePrivateProfileStringW(L"update", L"check_on_start", app.updateOnStart ? L"1" : L"0",
+                               app.iniPath.c_str());
 }
 
 static void setStatus(const std::wstring& text, bool error = false) {
@@ -249,6 +267,126 @@ static void loadDictionaries() {
         return;
     }
     fillWorksCombo();
+}
+
+// ------------------------------------------------------------ автообновление
+// Как работает: сервер знает о последнем релизе на GitHub (/api/updates),
+// клиент сравнивает номера сборок, скачивает exe из релиза, проверяет SHA-256
+// и подменяет файл на диске после своего закрытия — установка «поверх» без мастера.
+static std::wstring tempDir() {
+    wchar_t buf[MAX_PATH + 1] = L"";
+    DWORD n = GetTempPathW(MAX_PATH, buf);
+    if (!n) return L".\\";
+    return std::wstring(buf);
+}
+
+static void setVersionLabel(const std::wstring& extra) {
+    HWND h = GetDlgItem(app.hwnd, IDC_STATIC_VERSION);
+    if (!h) return;
+    std::wstring text = L"Версия " + wide(CRM_CLIENT_VERSION);
+    if (!extra.empty()) text += L"  ·  " + extra;
+    SetWindowTextW(h, text.c_str());
+}
+
+static bool installUpdate() {
+    if (app.update.url.empty()) {
+        msgBox(L"В релизе нет файла для Windows. Скачайте сборку со страницы релизов.", L"Обновление",
+               MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    std::wstring tmp = tempDir();
+    std::wstring newExe = tmp + L"CRM-Windows-" + wide(app.update.latestVersion) + L".new.exe";
+
+    setStatus(L"● Скачиваем версию " + wide(app.update.latestVersion) + L" с GitHub…");
+    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    std::string err;
+    bool ok = app.api.downloadUpdate(app.update, u8(newExe), err);
+    SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+    if (!ok) {
+        setStatus(L"● Обновление не установлено: " + wide(err), true);
+        msgBox(L"Не удалось скачать обновление.\n\n" + wide(err) +
+               L"\n\nПродолжаем работу на текущей версии " + wide(CRM_CLIENT_VERSION) + L".", L"Обновление",
+               MB_OK | MB_ICONERROR);
+        return false;
+    }
+
+    wchar_t cur[MAX_PATH + 1] = L"";
+    GetModuleFileNameW(nullptr, cur, MAX_PATH);
+
+    // Скрипт-установщик: дожидается нашего закрытия, копирует новый exe поверх старого
+    // и запускает клиент заново. Пути передаются аргументами, поэтому кириллица в них безопасна.
+    std::wstring batPath = tmp + L"crm-update.cmd";
+    const char* bat =
+        "@echo off\r\n"
+        "chcp 65001 >nul\r\n"
+        ":wait\r\n"
+        "tasklist /FI \"IMAGENAME eq CRM-Windows.exe\" 2>nul | find /I \"CRM-Windows.exe\" >nul\r\n"
+        "if not errorlevel 1 (\r\n"
+        "  ping -n 2 127.0.0.1 >nul\r\n"
+        "  goto wait\r\n"
+        ")\r\n"
+        "copy /y \"%~1\" \"%~2\" >nul\r\n"
+        "start \"\" \"%~2\"\r\n"
+        "del \"%~1\" >nul 2>nul\r\n"
+        "(goto) 2>nul & del \"%~f0\"\r\n";
+    FILE* f = _wfopen(batPath.c_str(), L"wb");
+    if (!f) {
+        msgBox(L"Не удалось подготовить установку обновления (нет доступа к " + tmp + L").", L"Обновление",
+               MB_OK | MB_ICONERROR);
+        return false;
+    }
+    fwrite(bat, 1, strlen(bat), f);
+    fclose(f);
+
+    std::wstring args = L"\"" + newExe + L"\" \"" + std::wstring(cur) + L"\"";
+    HINSTANCE rc = ShellExecuteW(nullptr, L"open", batPath.c_str(), args.c_str(), nullptr, SW_HIDE);
+    if ((INT_PTR)rc <= 32) {
+        msgBox(L"Не удалось запустить установку обновления. Скачайте сборку вручную со страницы релизов.",
+               L"Обновление", MB_OK | MB_ICONERROR);
+        return false;
+    }
+    setStatus(L"● Устанавливаем версию " + wide(app.update.latestVersion) + L" — клиент перезапустится…");
+    DestroyWindow(app.hwnd);   // выходим: скрипт подменит файл и запустит клиент заново
+    return true;
+}
+
+static void checkUpdates(bool manual) {
+    UpdateInfo u;
+    if (!app.api.checkUpdates(u)) {
+        app.update = u;
+        setVersionLabel(L"обновления недоступны");
+        if (app.serverOk) setStatus(L"● Версия " + wide(CRM_CLIENT_VERSION) + L" (последний релиз на GitHub не получен)");
+        if (manual) {
+            msgBox(L"Не удалось проверить обновления.\n\n" + wide(u.error) +
+                   L"\n\nСборки публикуются автоматически на GitHub; проверьте доступ в интернет.", L"Обновление",
+                   MB_OK | MB_ICONINFORMATION);
+        }
+        return;
+    }
+    app.update = u;
+    if (!u.available) {
+        setVersionLabel(L"последняя");
+        setStatus(L"● Версия " + wide(CRM_CLIENT_VERSION) + L" — установлена последняя версия");
+        if (manual) {
+            msgBox(L"Установлена последняя версия: " + wide(CRM_CLIENT_VERSION) +
+                   L"\n\nНа GitHub опубликована " + wide(u.latestVersion.empty() ? CRM_CLIENT_VERSION : u.latestVersion) + L".",
+                   L"Обновление", MB_OK | MB_ICONINFORMATION);
+        }
+        return;
+    }
+
+    wchar_t sizebuf[64] = L"";
+    if (u.size > 0) _snwprintf(sizebuf, 64, L"%.0f КБ", (double)u.size / 1024.0);
+    setVersionLabel(L"доступна " + wide(u.latestVersion));
+    setStatus(L"● Доступна версия " + wide(u.latestVersion) + L" — нажмите «Обновление клиента»");
+    if (!manual && !app.updateOnStart) return;
+
+    std::wstring text = L"Опубликована новая версия " + wide(u.latestVersion) +
+                        L" (у вас " + wide(CRM_CLIENT_VERSION) + L").\n\n";
+    if (!u.notes.empty()) text += L"Что нового:\n" + wide(u.notes) + L"\n\n";
+    if (sizebuf[0]) text += std::wstring(L"Размер файла: ") + sizebuf + L"\n";
+    text += L"Скачать и установить поверх установленной версии?";
+    if (askYes(text, L"Доступно обновление")) installUpdate();
 }
 
 // ------------------------------------------------------------ адрес → координаты
@@ -442,6 +580,9 @@ static void onCommand(int id, int code) {
     case IDC_BTN_FILL:
         prefillFromHistory();
         break;
+    case IDC_BTN_UPDATE:
+        checkUpdates(true);
+        break;
     case IDC_BTN_OPENMAP:
         if (app.geo.ok) ShellExecuteW(nullptr, L"open", wide(app.geo.navUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else msgBox(L"Сначала определите координаты адреса.", L"Карта", MB_OK | MB_ICONINFORMATION);
@@ -569,9 +710,11 @@ static void createMainControls() {
     mkControl(L"BUTTON", L"Настройки сервера", BS_PUSHBUTTON, L + 510, y, 150, 34, IDC_BTN_SETTINGS);
     y += 44;
 
-    mkControl(L"STATIC", L"", SS_LEFT, L, y, W + 200, 18, IDC_STATIC_FORM_ERR);
+    mkControl(L"BUTTON", L"Обновление клиента", BS_PUSHBUTTON, L, y, 180, 26, IDC_BTN_UPDATE);
+    mkControl(L"STATIC", L"", SS_LEFT, L + 190, y + 4, W + 60, 18, IDC_STATIC_FORM_ERR);
 
     // статус-бар
+    mkControl(L"STATIC", L"Версия " CRM_CLIENT_VERSION, SS_LEFT, 520, 640, 400, 18, IDC_STATIC_VERSION);
     mkControl(L"STATIC", L"Сервер: —", SS_LEFT, 14, 640, 500, 18, IDC_STATIC_SERVER);
     HWND st = mkControl(L"STATIC", L"● Проверка связи с сервером…", SS_LEFT, 14, 660, 1180, 18, IDC_STATIC_STATUS);
     SendMessageW(st, WM_SETFONT, (WPARAM)app.font, TRUE);
@@ -591,12 +734,17 @@ static LRESULT CALLBACK SettingsProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                                  16, 36, 380, 24, h, (HMENU)(INT_PTR)IDC_DLG_URL, nullptr, nullptr);
         CreateWindowExW(0, L"STATIC", L"Пример: http://10.20.30.40:8000   (порт по умолчанию 8000)",
                         WS_CHILD | WS_VISIBLE, 16, 64, 380, 18, h, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Проверять обновления при запуске (брать сборки с GitHub)",
+                        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                        16, 84, 380, 20, h, (HMENU)(INT_PTR)IDC_DLG_URL_AUTO, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Сохранить", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                        120, 96, 110, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_OK, nullptr, nullptr);
+                        120, 116, 110, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_OK, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Проверить связь", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                        236, 96, 120, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_TEST, nullptr, nullptr);
+                        236, 116, 120, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_TEST, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Отмена", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                        16, 96, 96, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_CANCEL, nullptr, nullptr);
+                        16, 116, 96, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_CANCEL, nullptr, nullptr);
+        SendMessageW(GetDlgItem(h, IDC_DLG_URL_AUTO), BM_SETCHECK,
+                     app.updateOnStart ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(e, WM_SETFONT, (WPARAM)app.font, TRUE);
         SetFocus(e);
         return 0;
@@ -607,6 +755,7 @@ static LRESULT CALLBACK SettingsProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             wchar_t buf[512];
             GetWindowTextW(GetDlgItem(h, IDC_DLG_URL), buf, 512);
             dlgUrl = buf;
+            app.updateOnStart = SendMessageW(GetDlgItem(h, IDC_DLG_URL_AUTO), BM_GETCHECK, 0, 0) == BST_CHECKED;
             dlgResult = true;
             DestroyWindow(h);
             return 0;
@@ -650,7 +799,7 @@ static void showSettingsDialog() {
 
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"CRMClientSettings", L"Настройки подключения к серверу",
                                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                               CW_USEDEFAULT, CW_USEDEFAULT, 430, 180, app.hwnd, nullptr,
+                               CW_USEDEFAULT, CW_USEDEFAULT, 430, 210, app.hwnd, nullptr,
                                GetModuleHandleW(nullptr), nullptr);
     if (!dlg) return;
     EnableWindow(app.hwnd, FALSE);
@@ -691,6 +840,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         checkServer();
         loadDictionaries();
         onSearch();
+        setVersionLabel(L"");
+        if (app.updateOnStart) checkUpdates(false);
         return 0;
 
     case WM_COMMAND:
@@ -774,8 +925,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     wc.lpszMenuName = nullptr;
     RegisterClassW(&wc);
 
-    HWND h = CreateWindowExW(0, L"CRMClientMain",
-                             L"CRM — приём заявок на заправку картриджей и ремонт оргтехники",
+    std::wstring title = L"CRM — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
+                         wide(CRM_CLIENT_VERSION);
+    HWND h = CreateWindowExW(0, L"CRMClientMain", title.c_str(),
                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                              CW_USEDEFAULT, CW_USEDEFAULT, 1210, 740,
                              nullptr, nullptr, inst, nullptr);

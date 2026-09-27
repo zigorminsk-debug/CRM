@@ -1,0 +1,18 @@
+{
+  "app": "CRM — заявки на заправку картриджей и ремонт оргтехники",
+  "version": "1.0.3",
+  "build": 3,
+  "tag": "v1.0.3",
+  "released_at": "2026-09-27T10:50:13+00:00",
+  "min_build": 1,
+  "notes": "Проверка манифеста локально",
+  "page": "https://github.com/zigorminsk-debug/CRM/releases/tag/v1.0.3",
+  "latest_page": "https://github.com/zigorminsk-debug/CRM/releases/latest",
+  "windows": {
+    "file": "CRM-Windows.exe",
+    "url": "https://github.com/zigorminsk-debug/CRM/releases/download/v1.0.3/CRM-Windows.exe",
+    "size": 380416,
+    "sha256": "b3797949acf5f495cec1bf791a4fa3c6156fff5c83b7b74167ca631e52eeb96a",
+    "title": "Клиент для Windows (приём заявок)"
+  }
+}

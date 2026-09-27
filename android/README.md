@@ -19,27 +19,33 @@
 6. **Уведомления** о новых заявках, переносах и о передаче зоны на время отпуска
    (фоновый сервис опрашивает `/api/engineer/feed`).
 7. **Весь маршрут в Яндекс.Картах** одной ссылкой (все точки дня).
+8. **Автообновление**: приложение проверяет последний релиз GitHub (через сервер, `GET /api/updates`),
+   скачивает APK, сверяет SHA-256 и ставит новую версию **поверх установленной** — профиль инженера,
+   адрес сервера и настройки сохраняются. Кнопка «⇩» в шапке проверяет обновление вручную.
 
 ## Сборка APK
 
-Требуется Android Studio (или Android SDK + JDK 17).
+**Как в эксплуатации** — сборка идёт в GitHub Actions (`.github/workflows/release.yml`) при каждом
+изменении: APK получает номер версии, подписывается постоянным ключом и попадает в релиз `v<версия>`.
+Там же лежит `update.json` — по нему приложение понимает, что вышла новая версия.
+
+**Вручную** (JDK 17 + Android SDK, `ANDROID_SDK_ROOT` в переменных окружения):
 
 ```bash
-# в Android Studio: File → Open → папка android/ , затем Build → Build Bundle(s)/APK(s) → Build APK(s)
-# либо из командной строки:
 cd android
-./gradlew assembleDebug          # первый запуск создаст wrapper автоматически в Android Studio
-# результат: app/build/outputs/apk/debug/app-debug.apk
+CRM_KEYSTORE_FILE=../signing/android-release.p12 \
+CRM_KEYSTORE_PASSWORD=crm-android-key-2026 \
+CRM_KEY_ALIAS=crm-engineer ./build_apk.sh        # результат: android/dist/CRM-Engineer.apk + SHA-256
 ```
 
-Для подписанного релиза:
+Отладочная сборка в Android Studio: File → Open → папка `android/`, затем Build → Build APK(s).
 
-```bash
-./gradlew assembleRelease      # нужен keystore, настройте signingConfigs в app/build.gradle
-```
+Собранный APK можно сразу положить в папку `downloads/` (или на сервер в одноимённую папку) —
+он появится на странице `http://<сервер>:8000/downloads`, откуда инженеры его и забирают.
 
-Готовый файл можно положить на сервер в папку `downloads/` под именем **CRM-Engineer.apk** —
-он сразу появится на странице `http://<сервер>:8000/downloads`.
+**Ключ подписи менять нельзя** — Android разрешает установку поверх только для сборок с той же
+подписью. Ключ и пароль по умолчанию: `signing/android-release.p12`, alias `crm-engineer`,
+пароль `crm-android-key-2026` (инструкция по переходу на секреты — `signing/README.md`).
 
 ## Быстрая альтернатива без сборки APK
 
@@ -56,4 +62,7 @@ app/src/main/java/by/crm/engineer/
   MainActivity.kt   — вход, маршрут на день, действия инженера
   TaskAdapter.kt    — списки заявок и доставок
   FeedService.kt    — фоновая лента заявок и push-уведомления
+  Updater.kt        — автообновление: проверка релиза, скачивание APK, SHA-256, установка поверх
+  ../res/xml/file_paths.xml — FileProvider для передачи APK системному установщику
+build_apk.sh        — сборка и подпись APK (версия из tools/version.py)
 ```

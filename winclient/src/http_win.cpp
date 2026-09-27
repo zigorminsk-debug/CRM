@@ -129,6 +129,73 @@ HttpResponse httpRequest(const std::string& url, const std::string& method, cons
     return res;
 }
 
+long long httpDownloadToFile(const std::string& url, const std::string& path,
+                            std::string& error, int timeoutSec) {
+    UrlParts p = parseUrl(url);
+    HINTERNET session = WinHttpOpen(L"CRM-Windows-Client/1.0",
+                                    WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) { error = "WinHttpOpen: не удалось инициализировать сеть"; return -1; }
+
+    int tmo = timeoutSec * 1000;
+    WinHttpSetTimeouts(session, tmo, tmo, tmo, tmo);
+
+    HINTERNET conn = WinHttpConnect(session, w(p.host).c_str(), (INTERNET_PORT)p.port, 0);
+    if (!conn) {
+        error = "Не удалось подключиться к " + p.host + ":" + std::to_string(p.port);
+        WinHttpCloseHandle(session);
+        return -1;
+    }
+    DWORD flags = p.https ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET req = WinHttpOpenRequest(conn, L"GET", w(p.path).c_str(), nullptr,
+                                       WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!req) {
+        error = "Не удалось создать HTTP-запрос";
+        WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+        return -1;
+    }
+    if (!WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(req, nullptr)) {
+        error = "Сервер не отдал файл (таймаут " + std::to_string(timeoutSec) + " с)";
+        WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+        return -1;
+    }
+    DWORD status = 0, len = sizeof(status);
+    WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &len, WINHTTP_NO_HEADER_INDEX);
+    if (status < 200 || status >= 300) {
+        error = "Сервер вернул код " + std::to_string((int)status) + " вместо файла";
+        WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+        return -1;
+    }
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        error = "Не удалось создать файл " + path;
+        WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+        return -1;
+    }
+    long long total = 0;
+    for (;;) {
+        DWORD avail = 0;
+        if (!WinHttpQueryDataAvailable(req, &avail) || avail == 0) break;
+        std::string chunk(avail, '\0');
+        DWORD read = 0;
+        if (!WinHttpReadData(req, &chunk[0], avail, &read) || read == 0) break;
+        if (fwrite(chunk.data(), 1, (size_t)read, f) != (size_t)read) {
+            error = "Ошибка записи файла " + path;
+            fclose(f);
+            WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+            return -1;
+        }
+        total += read;
+    }
+    fclose(f);
+    WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+    if (total == 0) { error = "Получен пустой файл — обновление отменено"; return -1; }
+    return total;
+}
+
 } // namespace crm
 
 #endif // _WIN32

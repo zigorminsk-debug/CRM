@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <cstring>
+#include <cstdio>
 #include <sstream>
 #include <cstdlib>
 
@@ -115,6 +116,19 @@ HttpResponse httpRequest(const std::string& url, const std::string& method, cons
     res.body = payload;
     res.ok = (res.status >= 200 && res.status < 300);
     return res;
+}
+
+// Тестовая сборка: качаем тем же POSIX-клиентом (проверка автообновления на CI).
+long long httpDownloadToFile(const std::string& url, const std::string& path,
+                            std::string& error, int timeoutSec) {
+    HttpResponse r = httpRequest(url, "GET", "", std::map<std::string, std::string>(), timeoutSec);
+    if (!r.ok) { error = r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error; return -1; }
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) { error = "Не удалось создать файл " + path; return -1; }
+    size_t n = fwrite(r.body.data(), 1, r.body.size(), f);
+    fclose(f);
+    if (n != r.body.size() || n == 0) { error = "Ошибка записи файла " + path; return -1; }
+    return (long long)n;
 }
 
 } // namespace crm

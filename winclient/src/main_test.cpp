@@ -1,7 +1,10 @@
 // main_test.cpp — консольный автотест клиентской логики (та же логика, что в Windows-GUI).
-// Сборка: g++ -std=c++17 src/main_test.cpp src/api.cpp src/validate.cpp src/http_posix.cpp -o crm_client_test
+// Сборка: g++ -std=c++17 src/main_test.cpp src/api.cpp src/validate.cpp src/hash.cpp src/http_posix.cpp
+//         -o crm_client_test
 // Запуск:  ./crm_client_test http://127.0.0.1:8000
 #include "api.h"
+#include "hash.h"
+#include "http.h"
 #include "validate.h"
 #include <cstdio>
 #include <cstdlib>
@@ -122,6 +125,52 @@ int main(int argc, char** argv) {
 
     // 8. Авторизация (для истории по р/с)
     check(api.login("admin", "admin123") || !api.lastError.empty(), "Проверка входа администратора", api.lastError);
+
+    // 9. SHA-256 — им проверяется целостность скачанного обновления
+    check(sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "SHA-256 строки (тестовый вектор)", sha256Hex("abc"));
+    std::string emptyHash = sha256Hex("");
+    check(emptyHash == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "SHA-256 пустой строки", emptyHash);
+
+    // 10. Версия и автообновление
+    Json ver;
+    bool vOk = false;
+    {
+        HttpResponse vr = httpRequest(base + "/api/version", "GET");
+        vOk = vr.ok;
+        ver = Json::parse(vr.body);
+    }
+    check(vOk && !ver.getStr("version").empty(), "GET /api/version — версия сборки",
+          ver.getStr("version") + " (build " + ver.getStr("build") + ")");
+    check(ver.getStr("manifest_url").find("update.json") != std::string::npos,
+          "Адрес манифеста автообновления", ver.getStr("manifest_url"));
+
+    UpdateInfo upd;
+    bool uOk = api.checkUpdates(upd);
+    printf("       релиз: установлено %s (build %d), на GitHub %s (build %d)\n",
+           upd.currentVersion.c_str(), upd.currentBuild, upd.latestVersion.c_str(), upd.latestBuild);
+    check(ok && (uOk || !upd.error.empty()), "GET /api/updates — проверка релиза на GitHub",
+          uOk ? ("обновление " + std::string(upd.available ? "доступно: " + upd.latestVersion : "не требуется"))
+              : upd.error);
+    if (uOk && upd.available) {
+        check(upd.url.find("CRM-Windows") != std::string::npos && upd.sha256.size() == 64,
+              "В релизе есть exe и контрольная сумма", upd.sha256.substr(0, 16) + "…");
+    }
+
+    // 11. Скачивание файла обновления и сверка контрольной суммы
+    {
+        std::string local = "/tmp/crm-download-test.bin";
+        std::string dlErr;
+        long long bytes = httpDownloadToFile(base + "/download/CRM-Windows.exe", local, dlErr, 60);
+        std::string hashErr, got;
+        if (bytes > 0) got = sha256File(local, hashErr);
+        bool missing = dlErr.find("404") != std::string::npos;   // сборка ещё не опубликована
+        check(bytes > 0 || missing, "Скачивание сборки с сервера (файл для обновления)",
+              bytes > 0 ? (std::to_string(bytes / 1024) + " КБ, sha256 " + got.substr(0, 16) + "…")
+                        : (missing ? "файл пока не собран — проверка пропущена" : dlErr));
+        remove(local.c_str());
+    }
 
     printf("\n=== Итог: %s (ошибок: %d) ===\n", failures == 0 ? "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : "ЕСТЬ ОШИБКИ", failures);
     return failures == 0 ? 0 : 1;

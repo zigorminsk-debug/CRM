@@ -21,14 +21,13 @@ winclient/dist/
 # Android
 android/.gradle/
 android/local.properties
+android/keystore.properties      # пароли ключа подписи (не хранить в репозитории)
 android/build/
 android/app/build/
 android/.idea/
 android/captures/
 *.apk
 *.aab
-# ...кроме готового APK инженера в каталоге раздачи
-!downloads/CRM-Engineer.apk
 
 # Разное
 .DS_Store

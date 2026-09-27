@@ -26,6 +26,17 @@ struct ContractorCard {
     std::string name, unp, bankAccount, bankName, address, contactPerson, phone, email;
 };
 
+// Сведения об обновлении, полученные от сервера (он читает манифест релиза на GitHub)
+struct UpdateInfo {
+    bool available = false;          // на GitHub есть сборка новее установленной
+    int currentBuild = 0, latestBuild = 0;
+    std::string currentVersion, latestVersion, notes, page, url, sha256;
+    long long size = 0;
+    std::string error;               // почему не удалось проверить (нет связи/GitHub)
+
+    bool ok() const { return error.empty(); }
+};
+
 class ApiClient {
 public:
     std::string base;          // например, http://192.168.1.10:8000
@@ -42,6 +53,8 @@ public:
     bool searchContractors(const std::string& query, std::vector<ContractorCard>& out);
     bool searchRequests(const std::string& query, Json& out);
     bool login(const std::string& user, const std::string& password);
+    bool checkUpdates(UpdateInfo& out);                       // GET /api/updates
+    bool downloadUpdate(const UpdateInfo& u, const std::string& targetPath, std::string& error);
 };
 
 // Утилита: склейка URL с экранированием параметров

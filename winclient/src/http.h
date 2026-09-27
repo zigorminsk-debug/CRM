@@ -20,6 +20,11 @@ HttpResponse httpRequest(const std::string& url, const std::string& method,
                          const std::map<std::string, std::string>& headers = std::map<std::string, std::string>(),
                          int timeoutSec = 20);
 
+// Скачивание файла по HTTP(S) в файл на диске (автообновление).
+// Возвращает размер в байтах или -1 при ошибке (текст ошибки — в error).
+long long httpDownloadToFile(const std::string& url, const std::string& path,
+                            std::string& error, int timeoutSec = 180);
+
 // Разбор URL: host, port, path, https
 struct UrlParts {
     std::string scheme, host, path;

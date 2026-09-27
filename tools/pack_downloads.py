@@ -5,7 +5,7 @@
 * CRM-Windows-Client.zip — exe + краткая инструкция
 * crm-server.zip         — сервер (Python) без базы, кэшей и виртуальных окружений
 * crm-sources.zip        — исходники Windows-клиента и Android-приложения
-* CRM-Engineer.apk       — не собирается здесь (нет Android SDK); кладётся вручную после сборки APK
+* CRM-Engineer.apk       — копируется из android/dist (его собирает android/build_apk.sh или CI)
 * README.txt             — инструкция для конечного пользователя
 
 Запуск: python3 tools/pack_downloads.py
@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "downloads")
 
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", ".venv-srv", "build", "dist", "downloads",
-                ".gradle", ".idea", "node_modules", "data", ".pytest_cache"}
+                ".gradle", ".idea", "node_modules", "data", ".pytest_cache", "signing"}
 EXCLUDE_SUFFIX = {".pyc", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".log", ".apk", ".exe"}
 EXCLUDE_NAMES = {"local.properties"}
 
@@ -88,6 +88,15 @@ README_TXT = """CRM — заявки на заправку картриджей 
 * Вся история заявок доступна с поиском по контрагенту, УНП, р/с, телефону и периоду,
   с выгрузкой в CSV.
 
+Обновления
+----------
+* Новые сборки собираются автоматически на GitHub (Actions) при каждом изменении и
+  публикуются как релиз с собственным номером версии.
+* Windows-клиент и приложение инженера проверяют обновления сами: при запуске спрашивают
+  сервер (/api/updates), скачивают новую сборку из релиза и ставят её поверх установленной.
+* Все сборки подписаны постоянным ключом проекта, поэтому обновление ставится «поверх»
+  без удаления установленной версии; настройки и профиль инженера сохраняются.
+
 Подробная документация — в README.md на сервере (/docs — описание API).
 """
 
@@ -106,6 +115,17 @@ def main() -> None:
     else:
         print("  exe:  не собран — выполните winclient/build_windows.sh")
 
+    # 1.1 APK инженера (если собран)
+    apk_src = os.path.join(ROOT, "android", "dist", "CRM-Engineer.apk")
+    apk = os.path.join(OUT, "CRM-Engineer.apk")
+    if os.path.exists(apk_src):
+        shutil.copy2(apk_src, apk)
+        print(f"  apk:  {apk} ({os.path.getsize(apk)//1024} КБ)")
+    elif os.path.exists(apk):
+        print(f"  apk:  уже на месте ({os.path.getsize(apk)//1024} КБ)")
+    else:
+        print("  apk:  не собран — выполните android/build_apk.sh (нужен Android SDK)")
+
     # 2. архив клиента Windows
     if os.path.exists(exe):
         with zipfile.ZipFile(os.path.join(OUT, "CRM-Windows-Client.zip"), "w", zipfile.ZIP_DEFLATED) as zf:
@@ -121,6 +141,13 @@ def main() -> None:
         zip_tree(zf, os.path.join(ROOT, "server"), "crm-server")
         zf.writestr("crm-server/README.md", open(os.path.join(ROOT, "README.md"), encoding="utf-8").read())
         zf.writestr("README.txt", README_TXT)
+        # версия сборки: сервер покажет её в /api/version и будет сравнивать с релизами
+        version_file = os.path.join(ROOT, "VERSION")
+        if os.path.exists(version_file):
+            zf.write(version_file, "crm-server/VERSION")
+        build = os.environ.get("CRM_BUILD_NUMBER", "").strip()
+        if build.isdigit():
+            zf.writestr("crm-server/BUILD", build)
     print("  zip:  crm-server.zip")
 
     # 4. исходники клиентов
@@ -136,6 +163,7 @@ def main() -> None:
     print(f"\nГотово. Файлы в {OUT}:")
     for f in sorted(os.listdir(OUT)):
         print(f"  {f:28s} {os.path.getsize(os.path.join(OUT, f))//1024:>6} КБ")
+    print("\nРелизы с этими файлами публикует .github/workflows/release.yml (тег v<версия>).")
 
 
 if __name__ == "__main__":

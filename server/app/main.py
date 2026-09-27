@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, db, geocode, requests_service as rs, routing, seed, validation, zones
+from . import auth, db, geocode, requests_service as rs, routing, seed, updates, validation, zones
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -29,7 +29,7 @@ DOWNLOAD_DIR = os.environ.get("CRM_DOWNLOAD_DIR", os.path.join(os.path.dirname(B
 
 app = FastAPI(
     title="CRM: заявки на заправку картриджей и ремонт оргтехники",
-    version="1.0.0",
+    version=updates.version_info()["version"],
     description="Сервер приёма заявок (Windows-клиент), распределения по зонам, маршрутизации (Android) и истории.",
 )
 app.add_middleware(
@@ -146,8 +146,26 @@ class WorkIn(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "time": db.now(), "version": app.version,
+    return {"ok": True, "time": db.now(), "version": updates.version_info()["version"],
             "db": os.path.basename(db.DB_PATH), "zone_count": len(zones.all_zones())}
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    """Версия сервера и адрес манифеста автообновления (используется клиентами)."""
+    info = updates.version_info()
+    info["manifest_url"] = updates.manifest_url()
+    return info
+
+
+@app.get("/api/updates")
+def api_updates(force: bool = False) -> dict:
+    """Сведения об обновлениях: текущая версия + последний релиз на GitHub.
+
+    Windows-клиент и приложение инженера сравнивают номер сборки (`build`) со своим
+    и при наличии новой версии скачивают файл из релиза (подпись — постоянным ключом).
+    """
+    return updates.updates_payload(force=force)
 
 
 @app.get("/api/config")
@@ -683,6 +701,8 @@ def downloads_page() -> HTMLResponse:
     <title>Загрузки CRM</title><style>body{{font:15px system-ui;margin:40px;max-width:760px}}
     h1{{font-size:22px}} li{{margin:8px 0}}</style></head><body>
     <h1>Файлы приложений</h1><ul>{rows}</ul>
+    <p>Автообновление: клиенты проверяют <a href="/api/updates">/api/updates</a> и берут сборки из
+    последнего релиза на GitHub (<a href="{updates.manifest_url()}">update.json</a>).</p>
     <p><a href="/admin">→ Веб-админка диспетчера</a> · <a href="/m">→ Мобильное приложение инженера</a> · <a href="/docs">→ API</a></p>
     </body></html>""")
 
