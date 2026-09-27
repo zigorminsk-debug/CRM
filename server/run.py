@@ -79,9 +79,9 @@ def _console_tweaks() -> None:
 def _print_addresses(host: str, port: int) -> None:
     """Понятная стартовая строка: куда заходить браузером (0.0.0.0 в браузере не открывается)."""
     if host != "0.0.0.0":
-        print(f"CRM server: http://{host}:{port}  (админка /admin, инженер /m, docs /docs)")
+        print(f"Cartridge Engineer: http://{host}:{port}  (админка /admin, инженер /m, docs /docs)")
         return
-    print(f"CRM server запущен, порт {port}. Открывайте в браузере:")
+    print(f"Cartridge Engineer сервер запущен, порт {port}. Открывайте в браузере:")
     print(f"  на этом компьютере:   http://127.0.0.1:{port}")
     ips = local_ips()
     if ips:
@@ -222,12 +222,12 @@ def run_gui(host: str, port: int) -> bool:
                "Сервер будет запущен в фоновом режиме без окна.\n"
                f"Адрес для входа: http://127.0.0.1:{port}\n"
                "Адреса для телефонов — в сообщении о запуске (консоль/журнал).")
-        _fatal(msg, "CRM server — окно управления")
+        _fatal(msg, "Cartridge Engineer — окно управления")
         return False
     except BaseException:  # прочие сбои окна — показываем причину и уходим в консоль
         import traceback
         _fatal("Окно управления упало с ошибкой:\n" + traceback.format_exc(),
-               "CRM server — окно управления")
+               "Cartridge Engineer — окно управления")
         return False
 
 

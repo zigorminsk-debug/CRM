@@ -39,7 +39,7 @@ RC_SRC="src/main.rc"
 if [[ ! -f "$RC_SRC" ]]; then
   sed -e "s/@FILEVERSION@/$FILEVERSION/g" \
       -e "s/@VERSION@/$VERSION/g" \
-      -e "s/@COMPANY@/CRM Kartridzh/g" "src/main.rc.in" > "$RC_SRC"
+      -e "s/@COMPANY@/Cartridge Engineer/g" "src/main.rc.in" > "$RC_SRC"
 fi
 RC_OBJ="dist/CRM-Windows.res"
 

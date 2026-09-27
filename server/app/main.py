@@ -39,7 +39,7 @@ else:
     DOWNLOAD_DIR = os.path.join(os.path.dirname(BASE_DIR), "..", "downloads")
 
 app = FastAPI(
-    title="CRM: заявки на заправку картриджей и ремонт оргтехники",
+    title="Cartridge Engineer: заявки на заправку картриджей и ремонт оргтехники",
     version=updates.version_info()["version"],
     description="Сервер приёма заявок (Windows-клиент), распределения по зонам, маршрутизации (Android) и истории.",
 )
@@ -932,11 +932,11 @@ def downloads_page() -> HTMLResponse:
 @app.get("/")
 def root() -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-    <title>CRM — заявки на заправку картриджей и ремонт оргтехники</title>
+    <title>Cartridge Engineer — приём заявок</title>
     <style>body{{font:16px system-ui;margin:40px;max-width:820px;line-height:1.5}}
     a.b{{display:inline-block;margin:6px 12px 6px 0;padding:10px 16px;background:#1a56db;color:#fff;
     border-radius:8px;text-decoration:none}}</style></head><body>
-    <h1>Сервер заявок работает</h1>
+    <h1>Cartridge Engineer — сервер работает</h1>
     <p>Время сервера: {db.now()}</p>
     <p><a class="b" href="/admin">Веб-админка диспетчера</a>
        <a class="b" href="/m">Приложение инженера (мобильное)</a>

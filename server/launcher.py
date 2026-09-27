@@ -65,7 +65,7 @@ class ControlPanel:
 
     # ------------------------------------------------------------ интерфейс
     def _build(self) -> None:
-        self.root.title("CRM — сервер заявок")
+        self.root.title("Cartridge Engineer — сервер заявок")
         self.root.minsize(560, 380)
 
         top = ttk.Frame(self.root, padding=(10, 8))
@@ -103,7 +103,7 @@ class ControlPanel:
         self.log_text.pack(fill="both", expand=True)
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self._log("CRM — сервер заявок. Разделы: /admin — админка, /m — приложение инженера, /docs — API.")
+        self._log("Cartridge Engineer — сервер заявок. Разделы: /admin — админка, /m — инженер, /docs — API.")
         self._log("Если порт занят — впишите другой (например, 8010) и нажмите «Запустить».")
 
     def _attach_logging(self) -> None:

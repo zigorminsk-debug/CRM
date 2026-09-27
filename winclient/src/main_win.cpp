@@ -960,7 +960,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     RegisterClassW(&wc);
 
     initDpiScale(nullptr);
-    std::wstring title = L"CRM — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
+    std::wstring title = L"Cartridge Engineer — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
                          wide(CRM_CLIENT_VERSION);
     HWND h = CreateWindowExW(0, L"CRMClientMain", title.c_str(),
                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,

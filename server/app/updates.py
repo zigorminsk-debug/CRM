@@ -100,7 +100,7 @@ def version_info() -> dict:
     base = base_version()
     full = os.environ.get("CRM_VERSION", "").strip() or (f"{base}.{build}" if build else base)
     return {
-        "app": "CRM — заявки на заправку картриджей и ремонт оргтехники",
+        "app": "Cartridge Engineer — заявки на заправку картриджей и ремонт оргтехники",
         "base": base,
         "build": build,
         "version": full,
