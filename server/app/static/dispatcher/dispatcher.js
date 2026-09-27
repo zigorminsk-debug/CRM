@@ -111,9 +111,27 @@ async function fillSelects() {
   for (const pr of S.cfg.priorities) p.append(el('option', { value: pr.code, selected: pr.code === 'normal' ? 'selected' : null }, pr.label));
 }
 
+/* Полный адрес из отдельных полей: НП, улица, дом, кв./офис. */
+function buildAddress() {
+  const st = $('#r-settlement').value.trim();
+  let street = $('#r-street').value.trim();
+  const house = $('#r-house').value.trim();
+  const office = $('#r-office').value.trim();
+  // «ул.» добавляем только если пользователь не написал сам (проспект, пер., шоссе…)
+  if (street && !/^(ул|ул\.|улица|пр|пр-т|просп|проспект|пер|пер\.|переулок|б-р|бульвар|пл|площадь|шоссе|ш)\b/i.test(street)) street = 'ул. ' + street;
+  const parts = [];
+  if (st) parts.push(st);
+  if (street) parts.push(street + (house ? ', д. ' + house : ''));
+  else if (house) parts.push('д. ' + house);
+  if (office) parts.push(/^\d/.test(office) ? 'оф. ' + office : office);
+  return parts.join(', ');
+}
+function updateAddrPreview() { $('#r-addr-preview').textContent = buildAddress(); }
+['#r-settlement', '#r-street', '#r-house', '#r-office'].forEach((s) => $(s).addEventListener('input', updateAddrPreview));
+
 $('#r-check').onclick = async () => {
-  const q = $('#r-address').value.trim();
-  if (!q) { toast('Введите адрес'); return; }
+  const q = buildAddress();
+  if (!q) { toast('Укажите населённый пункт и улицу'); return; }
   $('#r-geo-result').textContent = 'Определяю…';
   try {
     const g = await api('/api/geo/resolve?' + new URLSearchParams({ address: q }));
@@ -125,10 +143,71 @@ $('#r-check').onclick = async () => {
   } catch (e) { $('#r-geo-result').textContent = e.message; }
 };
 
+/* Контрагент: варианты из прошлых заявок; при выборе — подстановка реквизитов. */
+let contractorCache = [];
+let cTimer = null;
+$('#r-contractor').addEventListener('input', () => {
+  clearTimeout(cTimer);
+  cTimer = setTimeout(async () => {
+    const q = $('#r-contractor').value.trim();
+    if (q.length < 2) { contractorCache = []; return; }
+    try {
+      contractorCache = await api('/api/contractors?q=' + encodeURIComponent(q));
+      const dl = $('#dl-contractors'); dl.innerHTML = '';
+      for (const c of contractorCache) dl.append(el('option', { value: c.name }, c.unp ? ('УНП ' + c.unp + (c.phone ? ' · ' + c.phone : '')) : ''));
+    } catch (e) { /* подсказки не критичны */ }
+  }, 200);
+});
+$('#r-contractor').addEventListener('change', () => {
+  const name = $('#r-contractor').value.trim().toLowerCase();
+  const c = contractorCache.find((x) => x.name.toLowerCase() === name);
+  if (!c) return;
+  if (c.unp) $('#r-unp').value = c.unp;
+  if (c.bank_account) $('#r-account').value = c.bank_account;
+  if (c.bank_name) $('#r-bank').value = c.bank_name;
+  if (c.contact_person) $('#r-contact').value = c.contact_person;
+  if (c.phone) { $('#r-phone').value = c.phone; $('#r-phone').dispatchEvent(new Event('blur')); }
+  toast('Реквизиты подставлены из прошлой заявки: ' + c.name, 4000);
+});
+
+/* Населённый пункт: подсказки (Минск + Минская область). */
+let stTimer = null;
+$('#r-settlement').addEventListener('input', () => {
+  clearTimeout(stTimer);
+  stTimer = setTimeout(async () => {
+    const q = $('#r-settlement').value.trim();
+    if (q.length < 2) return;
+    try {
+      const list = await api('/api/geo/settlements?q=' + encodeURIComponent(q));
+      const dl = $('#dl-settlements'); dl.innerHTML = '';
+      for (const item of list) dl.append(el('option', { value: item.name }, item.district || ''));
+    } catch (e) { /* не критично */ }
+  }, 200);
+});
+
+/* Улица: подсказки по началу названия (Фабр… -> Фабрициуса). */
+let strTimer = null;
+$('#r-street').addEventListener('input', () => {
+  clearTimeout(strTimer);
+  strTimer = setTimeout(async () => {
+    const q = $('#r-street').value.trim();
+    if (q.length < 2) return;
+    const settlement = $('#r-settlement').value.trim();
+    try {
+      const list = await api('/api/geo/streets?q=' + encodeURIComponent(q)
+        + (settlement ? '&settlement=' + encodeURIComponent(settlement) : ''));
+      const dl = $('#dl-streets'); dl.innerHTML = '';
+      for (const item of list) dl.append(el('option', { value: item.name }, item.district || ''));
+    } catch (e) { /* не критично */ }
+  }, 200);
+});
+
 $('#r-clear').onclick = () => {
-  ['#r-contractor', '#r-unp', '#r-account', '#r-bank', '#r-contact', '#r-phone', '#r-address',
+  ['#r-contractor', '#r-unp', '#r-account', '#r-bank', '#r-contact', '#r-phone',
+   '#r-settlement', '#r-street', '#r-house', '#r-office',
    '#r-equipment', '#r-serial', '#r-comment'].forEach((s) => { $(s).value = ''; });
   $('#r-priority').value = 'normal';
+  $('#r-date').value = new Date().toISOString().slice(0, 10);
   $('#r-geo-result').textContent = '';
 };
 
@@ -138,8 +217,9 @@ $('#r-submit').onclick = async () => {
     bank_account: $('#r-account').value.trim(), bank_name: $('#r-bank').value.trim() || null,
     contact_person: $('#r-contact').value.trim(), phone: normalizePhone($('#r-phone').value.trim()),
     work_code: $('#r-work').value, priority: $('#r-priority').value,
-    address: $('#r-address').value.trim(), equipment: $('#r-equipment').value.trim() || null,
+    address: buildAddress(), equipment: $('#r-equipment').value.trim() || null,
     serial: $('#r-serial').value.trim() || null, comment: $('#r-comment').value.trim(),
+    planned_date: $('#r-date').value || null,
   };
   $('#r-submit').disabled = true;
   try {
@@ -167,6 +247,7 @@ async function loadRequests() {
     tb.append(el('tr', {},
       el('td', {}, el('b', {}, r.number)),
       el('td', {}, fmtDT(r.created_at)),
+      el('td', {}, r.planned_date || '—'),
       el('td', {}, r.contractor),
       el('td', {}, r.work_name),
       el('td', {}, badge(r.priority, r.priority_label)),
@@ -204,6 +285,7 @@ async function openRequest(id) {
     el('div', {}, 'Работа'), el('div', {}, r.work_name),
     el('div', {}, 'Срочность'), el('div', {}, badge(r.priority, r.priority_label)),
     el('div', {}, 'Адрес'), el('div', {}, r.address + (r.lat ? ` (${r.lat.toFixed(5)}, ${r.lon.toFixed(5)})` : '')),
+    el('div', {}, 'Дата исполнения'), el('div', {}, r.planned_date || '—'),
     el('div', {}, 'Район (зона)'), el('div', {}, r.zone_name || 'не определён'),
     el('div', {}, 'Инженер'), el('div', {}, r.engineer_name || '— не назначен —'),
     el('div', {}, 'Оборудование'), el('div', {}, (r.equipment || '—') + (r.serial ? ' / ' + r.serial : '')),
@@ -257,6 +339,7 @@ async function boot() {
   for (const s of S.cfg.statuses) sel.append(el('option', { value: s.code }, s.label));
   await fillSelects();
   attachPhoneInput('#r-phone', '#r-phone-hint');
+  $('#r-date').value = new Date().toISOString().slice(0, 10);
   loadRequests();
   clearInterval(S.timer);
   S.timer = setInterval(() => { if ($('#live').checked && $('#tab-list').classList.contains('active')) loadRequests(); }, 30000);

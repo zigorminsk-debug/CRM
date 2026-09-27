@@ -72,8 +72,8 @@ class LoginIn(BaseModel):
 class RequestIn(BaseModel):
     """Форма заявки (Windows-клиент). Обязательные поля помечены Field(...)."""
     contractor: str = Field(..., description="Наименование контрагента")
-    unp: str = Field(..., description="УНП, 9 цифр с контролем")
-    bank_account: str = Field(..., description="Расчётный счёт (IBAN BY… или 13 знаков)")
+    unp: str = Field("", description="УНП (необязательно — могут быть частные лица)")
+    bank_account: str = Field("", description="Расчётный счёт (необязательно)")
     contact_person: str = Field(..., description="Контактное лицо")
     phone: str = Field(..., description="Телефон, приводится к +375 XX XXX-XX-XX")
     work_id: int | None = None
@@ -263,12 +263,20 @@ def api_coverage(day: str | None = None) -> list[dict]:
 
 @app.get("/api/contractors")
 def api_contractors(q: str = "", limit: int = 20) -> list[dict]:
+    """Справочник контрагентов + поиск (регистронезависимо, кириллица — в Python)."""
     if not q:
         return db.rows2dicts(db.q("SELECT * FROM contractors ORDER BY id DESC LIMIT ?", (limit,)))
-    like = f"%{q}%"
-    return db.rows2dicts(db.q(
-        """SELECT * FROM contractors WHERE name LIKE ? OR unp LIKE ? OR REPLACE(bank_account,' ','') LIKE ?
-           OR contact_person LIKE ? ORDER BY id DESC LIMIT ?""", (like, like, like, like, limit)))
+    t = q.strip().lower()
+    rows = db.rows2dicts(db.q("SELECT * FROM contractors ORDER BY id DESC LIMIT 2000"))
+    def _hit(d: dict) -> bool:
+        return (t in (d.get("name") or "").lower()
+                or t in (d.get("unp") or "")
+                or t in (d.get("bank_account") or "").lower()
+                or t in (d.get("contact_person") or "").lower()
+                or t in (d.get("phone") or ""))
+    starts = [d for d in rows if _hit(d) and (d.get("name") or "").lower().startswith(t)]
+    rest = [d for d in rows if _hit(d) and d not in starts]
+    return (starts + rest)[:limit]
 
 
 # =====================================================================
@@ -363,6 +371,37 @@ def _engineer_id_of(user: dict, engineer_id: int | None) -> int:
     if not engineer_id:
         raise HTTPException(400, "Укажите engineer_id (для админа/оператора)")
     return int(engineer_id)
+
+
+@app.get("/api/geo/streets")
+def api_geo_streets(q: str = Query(..., min_length=2, max_length=80), settlement: str = "",
+                    user: dict = Depends(auth.current_user)) -> list[dict]:
+    """Подсказки улиц/проспектов/переулков по началу ввода."""
+    return geocode.search_streets(q, settlement)
+
+
+@app.get("/api/geo/settlements")
+def api_geo_settlements(q: str = Query(..., min_length=2, max_length=80),
+                        user: dict = Depends(auth.current_user)) -> list[dict]:
+    """Подсказки населённых пунктов (Минск и Минская область)."""
+    return geocode.search_settlements(q)
+
+
+@app.get("/api/engineer/history")
+def api_engineer_history(engineer_id: int | None = None, limit: int = 100,
+                         user: dict = Depends(auth.current_user)) -> dict:
+    """Исполненные заявки инженера (для кнопки «История» в Android)."""
+    eid = _engineer_id_of(user, engineer_id)
+    rows = db.q("""SELECT r.id, r.number, r.status, r.address, r.contractor, r.phone,
+                          r.planned_date, r.done_at, r.created_at, w.name AS work_name
+                   FROM requests r JOIN works w ON w.id=r.work_id
+                   WHERE r.engineer_id=? AND r.status IN ('done_onsite','delivered','closed')
+                   ORDER BY COALESCE(r.done_at, r.planned_date) DESC LIMIT ?""", (eid, limit))
+    items = db.rows2dicts(rows)
+    for t in items:
+        t["status_label"] = routing.STATUS_LABEL.get(t["status"], t["status"])
+        t["phone_formatted"] = validation.format_phone(t["phone"])
+    return {"ok": True, "items": items}
 
 
 @app.get("/api/engineer/route")

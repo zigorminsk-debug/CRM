@@ -22,11 +22,18 @@ def next_number() -> str:
 
 
 def _upsert_contractor(data: dict) -> int | None:
-    """Контрагент ищется по УНП; данные обновляются свежими значениями из формы."""
+    """Контрагент ищется по УНП, а без УНП (частные лица) — по точному названию."""
     unp = validation.normalize_unp(data.get("unp", ""))
-    if not unp:
-        return None
-    row = db.q1("SELECT id, name FROM contractors WHERE unp=? ORDER BY id LIMIT 1", (unp,))
+    name = (data.get("contractor") or "").strip()
+    row = None
+    if unp:
+        row = db.q1("SELECT id, name FROM contractors WHERE unp=? ORDER BY id LIMIT 1", (unp,))
+    if row is None and name:
+        nl = name.lower()
+        for r in db.q("SELECT id, name FROM contractors ORDER BY id"):
+            if (r["name"] or "").strip().lower() == nl:
+                row = r
+                break
     fields = {
         "name": (data.get("contractor") or "").strip(),
         "bank_account": validation.normalize_account(data.get("bank_account", "")),
@@ -44,6 +51,8 @@ def _upsert_contractor(data: dict) -> int | None:
         if sets:
             db.execute(f"UPDATE contractors SET {sets} WHERE id=?", (*vals, cid))
         return cid
+    if not name:
+        return None
     return db.execute(
         """INSERT INTO contractors(name,unp,bank_account,bank_name,address,contact_person,phone,email,notes,created_at)
            VALUES(?,?,?,?,?,?,?,?,?,?)""",

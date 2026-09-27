@@ -147,21 +147,20 @@ def validate_request_form(data: dict, works_codes: set[str] | None = None) -> tu
     errors: list[str] = []
     out = dict(data)
 
+    # УНП и р/с необязательны (частные лица): проверяем только если заполнены
     unp = normalize_unp(data.get("unp", ""))
-    err = unp_error(unp)
-    if err:
-        errors.append(err)
+    if unp:
+        err = unp_error(unp)
+        if err:
+            errors.append(err)
     out["unp"] = unp
 
     acc = normalize_account(data.get("bank_account", ""))
-    # кабинет клиента: счёт необязателен — диспетчер дополнит реквизиты позже
-    if not acc and data.get("account_optional"):
-        out["bank_account"] = ""
-    else:
+    if acc:
         err = account_error(acc)
         if err:
             errors.append(err)
-        out["bank_account"] = acc
+    out["bank_account"] = acc
 
     phone = normalize_phone(data.get("phone", ""))
     err = phone_error(data.get("phone", ""))

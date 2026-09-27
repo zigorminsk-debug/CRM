@@ -243,14 +243,39 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" />
 
-            <Button
-                android:id="@+id/routeAllButton"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:backgroundTint="@color/primary"
-                android:text="Весь маршрут в Яндекс.Картах"
-                android:textColor="#FFFFFF" />
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/routeAllButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minWidth="0dp"
+                    android:maxLines="1"
+                    android:textAllCaps="false"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/primary"
+                    android:text="Маршрут в Яндекс.Картах"
+                    android:textColor="#FFFFFF" />
+
+                <Button
+                    android:id="@+id/historyButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:minWidth="0dp"
+                    android:maxLines="1"
+                    android:textAllCaps="false"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/panel2"
+                    android:text="История"
+                    android:textColor="@color/text" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

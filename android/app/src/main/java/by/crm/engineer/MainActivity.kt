@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.refreshButton).setOnClickListener { refresh() }
         findViewById<Button>(R.id.dayButton).setOnClickListener { pickDay() }
         findViewById<Button>(R.id.routeAllButton).setOnClickListener { openFullRoute() }
+        findViewById<Button>(R.id.historyButton).setOnClickListener { showHistory() }
         findViewById<Button>(R.id.updateButton).setOnClickListener { checkUpdates(true) }
 
         taskAdapter = TaskAdapter(
@@ -103,6 +104,35 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("Позже", null)
                 .show()
         }
+    }
+
+    /** История: исполненные заявки инженера (done/closed) с последнего визита. */
+    private fun showHistory() {
+        apiCall({
+            val res = api.history()
+            val arr = res.optJSONArray("items") ?: org.json.JSONArray()
+            val lines = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val done = o.optString("done_at")
+                lines.add(
+                    (if (done.length >= 10) done.substring(0, 10) else o.optString("planned_date")) +
+                        " · " + o.optString("number") + " · " + o.optString("status_label") + "\n" +
+                        o.optString("work_name") + "\n" + o.optString("address")
+                )
+            }
+            runOnUiThread {
+                val dlg = AlertDialog.Builder(this)
+                if (lines.isEmpty()) {
+                    dlg.setTitle("История").setMessage("Исполненных заявок пока нет.")
+                        .setPositiveButton("Закрыть", null).show()
+                } else {
+                    dlg.setTitle("Исполненные заявки: ${lines.size}")
+                        .setItems(lines.toTypedArray(), null)
+                        .setPositiveButton("Закрыть", null).show()
+                }
+            }
+        })
     }
 
     override fun onResume() {

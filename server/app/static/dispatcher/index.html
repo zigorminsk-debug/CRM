@@ -35,9 +35,10 @@
     <h2>Новая заявка</h2>
     <div class="form-stack">
       <div class="toolbar">
-        <input id="r-contractor" placeholder="Наименование контрагента *" style="max-width:340px">
-        <input id="r-unp" placeholder="УНП (9 цифр) *" size="13">
-        <input id="r-account" placeholder="Расчётный счёт *" size="30">
+        <input id="r-contractor" list="dl-contractors" placeholder="Наименование контрагента *" style="max-width:340px" autocomplete="off">
+        <datalist id="dl-contractors"></datalist>
+        <input id="r-unp" placeholder="УНП (необязательно)" size="13">
+        <input id="r-account" placeholder="Р/С (необязательно)" size="30">
         <input id="r-bank" placeholder="Банк (необязательно)" style="max-width:200px">
       </div>
       <div class="toolbar">
@@ -49,8 +50,19 @@
         <select id="r-priority"></select>
       </div>
       <div class="toolbar">
-        <input id="r-address" placeholder="Адрес * (г. Минск, ул. … / Минский район, …)" style="max-width:420px">
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">Дата исполнения
+          <input type="date" id="r-date">
+        </label>
+        <input id="r-settlement" list="dl-settlements" placeholder="Населённый пункт * (начните вводить)" style="max-width:230px" autocomplete="off">
+        <datalist id="dl-settlements"></datalist>
+        <input id="r-street" list="dl-streets" placeholder="Улица / проспект / пер. * (начните вводить)" style="max-width:290px" autocomplete="off">
+        <datalist id="dl-streets"></datalist>
+      </div>
+      <div class="toolbar">
+        <input id="r-house" placeholder="Дом" size="8">
+        <input id="r-office" placeholder="Кв./офис" size="10">
         <button id="r-check">Проверить адрес</button>
+        <span class="muted" id="r-addr-preview" style="font-size:12px"></span>
       </div>
       <div class="hint" id="r-geo-result"></div>
       <div class="toolbar">
@@ -85,7 +97,7 @@
     <div id="req-summary" class="summary"></div>
     <table id="req-table">
       <thead><tr>
-        <th>№</th><th>Создана</th><th>Контрагент</th><th>Работа</th><th>Срочность</th><th>Статус</th>
+        <th>№</th><th>Создана</th><th>На дату</th><th>Контрагент</th><th>Работа</th><th>Срочность</th><th>Статус</th>
         <th>Район</th><th>Инженер</th><th>Адрес</th><th></th>
       </tr></thead>
       <tbody></tbody>

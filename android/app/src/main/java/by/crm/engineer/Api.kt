@@ -87,6 +87,9 @@ class Api(private val ctx: Context) {
 
     fun tasks(): JSONObject = request("GET", "/api/engineer/tasks")
 
+    /** История исполненных заявок (кнопка «История»). */
+    fun history(): JSONObject = request("GET", "/api/engineer/history")
+
     /** Кнопка «Поехали» — заявка переходит в работу, приложение открывает Яндекс.Навигатор. */
     fun go(id: Int): JSONObject = request("POST", "/api/engineer/task/$id/go", JSONObject())
 

@@ -1,6 +1,8 @@
 package by.crm.engineer
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -68,8 +70,13 @@ class TaskAdapter(
         holder.address.text = t.address
         holder.contact.text = buildString {
             append(t.contact)
-            if (t.phone.isNotBlank()) append(" · ${t.phone}")
+            if (t.phone.isNotBlank()) append(" · ☎ ${t.phone}")
             if (t.legKm > 0) append(" · ${t.legKm} км / ${t.driveMinutes} мин")
+        }
+        // клик по строке контакта — звонок через штатную звонилку
+        holder.contact.setOnClickListener { v ->
+            val p = t.phone.replace(Regex("[^+0-9]"), "")
+            if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
         }
         holder.comment.text = t.comment
         holder.comment.visibility = if (t.comment.isBlank()) View.GONE else View.VISIBLE
@@ -132,5 +139,9 @@ class DeliveryAdapter(
         holder.btnDone.setOnClickListener { onDelivered(d) }
         holder.btnPostpone.setOnClickListener { onPostpone(d) }
         holder.btnNav.setOnClickListener { onNavigate(d) }
+        holder.contact.setOnClickListener { v ->
+            val p = d.phone.replace(Regex("[^+0-9]"), "")
+            if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
+        }
     }
 }

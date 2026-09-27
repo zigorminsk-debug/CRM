@@ -129,6 +129,52 @@ def load_street_index(csv_path: str | None = None) -> int:
     return n
 
 
+def search_streets(q: str, settlement: str = "", limit: int = 8) -> list[dict]:
+    """Подсказки улиц для формы: совпадения по ключевым словам названия."""
+    t = _norm(q)
+    if len(t) < 2:
+        return []
+    tokens = t.split()
+    rows = db.q("SELECT name, key, district, kind FROM street_index WHERE kind='street'")
+    starts, contains = [], []
+    for r in rows:
+        key = r["key"]
+        if not key:
+            continue
+        hit = True
+        for w in tokens:
+            if w not in key:
+                # мягкое совпадение: начало слова (фабр -> фабрициуса)
+                if not any(k.startswith(w) for k in key.split()):
+                    hit = False
+                    break
+        if not hit:
+            continue
+        item = {"name": r["name"], "district": r["district"] or "", "kind": r["kind"]}
+        (starts if key.startswith(tokens[0]) else contains).append(item)
+    res = starts + contains
+    # если указан населённый пункт Минской области — улицы областных городов не знаём
+    st = _norm(settlement)
+    if st and st not in ("минск", "минск ", "г минск"):
+        res = [x for x in res if x["district"]]
+    return res[:limit]
+
+
+def search_settlements(q: str, limit: int = 8) -> list[dict]:
+    """Подсказки населённых пунктов (Минск + Минская область)."""
+    t = _norm(q)
+    if len(t) < 2:
+        return []
+    rows = db.q("SELECT name, district FROM street_index WHERE kind IN ('settlement','microdistrict')")
+    starts, contains = [], []
+    for r in rows:
+        key = _norm(r["name"])
+        if t in key:
+            (starts if key.startswith(t) else contains).append(
+                {"name": r["name"], "district": r["district"] or ""})
+    return (starts + contains)[:limit]
+
+
 def local_lookup(address: str) -> dict | None:
     """Поиск по локальному индексу: самое длинное совпадение ключа улицы/нас. пункта."""
     t = _norm(address)
