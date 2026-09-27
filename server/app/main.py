@@ -16,6 +16,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -969,6 +970,17 @@ def client_page() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exc_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Ошибки схемы запроса по-русски и строкой — иначе клиенты показывают [object Object]."""
+    parts = []
+    for e in exc.errors():
+        loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
+        parts.append(f"{loc or 'поле'}: {e.get('msg', 'некорректное значение')}")
+    return JSONResponse(status_code=422, content={
+        "ok": False, "error": "Некорректный запрос — " + "; ".join(parts), "status": 422})
 
 
 @app.exception_handler(HTTPException)

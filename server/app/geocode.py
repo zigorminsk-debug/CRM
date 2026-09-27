@@ -93,10 +93,13 @@ def street_key(name: str) -> str:
 def load_street_index(csv_path: str | None = None) -> int:
     """Загружает локальный справочник улиц/населённых пунктов в БД."""
     csv_path = csv_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "minsk_streets.csv")
-    if db.q1("SELECT 1 FROM street_index LIMIT 1"):
-        return 0
     if not os.path.exists(csv_path):
         return 0
+    # если индекс уже заполнен — ДОЗАГРУЖАЕМ только отсутствующие улицы:
+    # новые строки CSV попадают и в существующие базы (иначе у улицы, добавленной
+    # в справочник, нет шанса появиться у тех, кто уже пользуется сервером)
+    existing = {r["name"] for r in db.q("SELECT name FROM street_index")} if db.q1("SELECT 1 FROM street_index LIMIT 1") else set()
+    mode = "upsert" if existing else "load"
     n = 0
     with open(csv_path, encoding="utf-8") as fh:
         for line in fh:
@@ -109,6 +112,10 @@ def load_street_index(csv_path: str | None = None) -> int:
             name, lat, lon = parts[0], parts[1], parts[2]
             district = parts[3] if len(parts) > 3 else None
             kind = parts[4] if len(parts) > 4 else "street"
+            if mode == "upsert":
+                if name in existing:
+                    continue
+                existing.add(name)
             try:
                 db.execute(
                     """INSERT INTO street_index(name,key,lat,lon,district,kind,source,created_at)
@@ -245,7 +252,11 @@ def resolve(address: str, use_cache: bool = True) -> dict:
         _cache_put(address, z["lat"], z["lon"], z["id"], "zone_center", {"note": "только район"})
         return _finish(address, z["lat"], z["lon"], z["id"], "zone_center", {}, "district",
                        "Точный адрес не найден, координаты установлены по центру района — уточните точку вручную")
-    return {"ok": False, "message": "Не удалось определить адрес: укажите район Минска или Минской области",
+    return {"ok": False, "message": (
+            "Адрес не найден: " + address + ". Уточните написание, например: "
+            "\u00abг. Минск, ул. Фабрициуса, 9\u00bb или \u00abМинский район, аг. Колодищи, ул. Минская, 5\u00bb. "
+            "Для точного распознавания любых адресов добавьте ключ Яндекс.Геокодера "
+            "(Админка → Настройки) — без него работает офлайн-справочник и OpenStreetMap."),
             "precision": None}
 
 def _finish(address: str, lat: float, lon: float, zone_id: int | None, provider: str,

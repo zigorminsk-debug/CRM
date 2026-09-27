@@ -18,15 +18,58 @@ function toast(msg, ms = 3200) {
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+const asText = (v) => (v === null || v === undefined) ? ''
+  : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+
 async function api(path, opts = {}) {
-  const o = { headers: { 'Content-Type': 'application/json' }, ...opts };
-  if (S.token) o.headers.Authorization = 'Bearer ' + S.token;
+  // заголовки объединяем, а не заменяем: кастомные headers не должны
+  // выкидывать Content-Type и Authorization (иначе POST ломается с 422)
+  const o = { ...opts, headers: {
+    'Content-Type': 'application/json',
+    ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}),
+    ...(opts.headers || {}),
+  } };
   if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
-  if (!r.ok) throw new Error(data.error || data.detail || ('HTTP ' + r.status));
+  if (!r.ok) throw new Error(asText(data.error) || asText(data.detail) || ('HTTP ' + r.status));
   return data;
+}
+
+/* Телефон: любой ввод -> +375XXXXXXXXX (те же правила, что на сервере). */
+function normalizePhone(raw) {
+  const digits = (raw || '').replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  let rest = digits;
+  if (rest.startsWith('375')) rest = rest.slice(3);
+  else if (rest.startsWith('80') && rest.length === 11) rest = rest.slice(2);
+  else if (rest.startsWith('8') && rest.length === 10) rest = rest.slice(1);
+  else if (rest.startsWith('0') && rest.length === 10) rest = rest.slice(1);
+  if (rest.length === 9 && /^\d+$/.test(rest)) return '+375' + rest;
+  if (rest.length === 7 && rest.startsWith('0')) return '+37517' + rest.slice(1);
+  return '+' + digits;
+}
+function formatPhone(p) {
+  const m = (p || '').match(/^\+375(\d{2})(\d{3})(\d{2})(\d{2})$/);
+  return m ? ('+375 ' + m[1] + ' ' + m[2] + '-' + m[3] + '-' + m[4]) : p;
+}
+/* Поле телефона: при потере фокуса приводим к виду +375 XX XXX-XX-XX. */
+function attachPhoneInput(inputSel, hintSel) {
+  const inp = document.querySelector(inputSel);
+  const hint = hintSel ? document.querySelector(hintSel) : null;
+  if (!inp) return;
+  inp.addEventListener('blur', () => {
+    const raw = inp.value.trim();
+    if (!raw) { if (hint) hint.textContent = ''; return; }
+    const n = normalizePhone(raw);
+    const ok = /^\+375(25|29|33|44|17)\d{7}$/.test(n);
+    inp.value = ok ? formatPhone(n) : n;
+    if (hint) {
+      hint.textContent = ok ? ('Телефон: ' + formatPhone(n))
+        : ('Не похож на белорусский номер (' + n + '). Примеры: 8029 1234567, +375 29 123-45-67, 291234567');
+    }
+  });
 }
 
 const fmtDT = (s) => s ? new Date(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '';
@@ -184,7 +227,7 @@ async function loadEngineers() {
       el('td', {}, e.zones_count), el('td', {}, e.open_tasks),
       el('td', {}, e.absence ? `${e.absence.kind} ${e.absence.date_from}—${e.absence.date_to}` : '—'),
       el('td', {}, e.active ? 'да' : 'нет'),
-      el('td', {}, el('button', { onclick: async () => { const n = prompt('ФИО', e.full_name); if (!n) return; const p = prompt('Телефон', e.phone || ''); await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: n, phone: p, active: e.active, base_lat: e.base_lat, base_lon: e.base_lon } }); toast('Сохранено'); loadEngineers(); } }, 'Изменить'),
+      el('td', {}, el('button', { onclick: async () => { const n = prompt('ФИО', e.full_name); if (!n) return; const p = prompt('Телефон', e.phone || ''); await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: n, phone: normalizePhone(p), active: e.active, base_lat: e.base_lat, base_lon: e.base_lon } }); toast('Сохранено'); loadEngineers(); } }, 'Изменить'),
         ' ',
         el('button', { onclick: async () => { await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: e.full_name, phone: e.phone, active: e.active ? 0 : 1, base_lat: e.base_lat, base_lon: e.base_lon } }); loadEngineers(); } }, e.active ? 'Отключить' : 'Включить'),
         ' ',
@@ -205,7 +248,7 @@ async function loadEngineers() {
 }
 $('#e-add').onclick = async () => {
   try {
-    await api('/api/admin/engineers', { method: 'POST', body: { full_name: $('#e-name').value, phone: $('#e-phone').value, base_lat: +$('#e-lat').value || null, base_lon: +$('#e-lon').value || null } });
+    await api('/api/admin/engineers', { method: 'POST', body: { full_name: $('#e-name').value, phone: normalizePhone($('#e-phone').value), base_lat: +$('#e-lat').value || null, base_lon: +$('#e-lon').value || null } });
     toast('Инженер добавлен'); $('#e-name').value = $('#e-phone').value = ''; loadEngineers(); loadSelects();
   } catch (e) { toast(e.message); }
 };

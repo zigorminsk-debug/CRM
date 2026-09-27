@@ -101,6 +101,8 @@ def normalize_phone(raw: str) -> str:
         digits = digits[2:]
     elif digits.startswith("8") and len(digits) == 10:
         digits = digits[1:]
+    elif digits.startswith("0") and len(digits) == 10:
+        digits = digits[1:]          # 029 1234567 -> 29 1234567
     if len(digits) == 9 and digits.isdigit():
         return "+375" + digits
     if len(digits) == 7 and digits.startswith("0"):           # городской без кода

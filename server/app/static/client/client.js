@@ -17,15 +17,58 @@ function toast(msg, ms = 5000) {
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+const asText = (v) => (v === null || v === undefined) ? ''
+  : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+
 async function api(path, opts = {}) {
-  const o = { headers: { 'Content-Type': 'application/json' }, ...opts };
-  if (S.token) o.headers.Authorization = 'Bearer ' + S.token;
+  // заголовки объединяем, а не заменяем: кастомные headers не должны
+  // выкидывать Content-Type и Authorization (иначе POST ломается с 422)
+  const o = { ...opts, headers: {
+    'Content-Type': 'application/json',
+    ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}),
+    ...(opts.headers || {}),
+  } };
   if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
-  if (!r.ok) throw new Error(data.error || data.detail || ('HTTP ' + r.status));
+  if (!r.ok) throw new Error(asText(data.error) || asText(data.detail) || ('HTTP ' + r.status));
   return data;
+}
+
+/* Телефон: любой ввод -> +375XXXXXXXXX (те же правила, что на сервере). */
+function normalizePhone(raw) {
+  const digits = (raw || '').replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  let rest = digits;
+  if (rest.startsWith('375')) rest = rest.slice(3);
+  else if (rest.startsWith('80') && rest.length === 11) rest = rest.slice(2);
+  else if (rest.startsWith('8') && rest.length === 10) rest = rest.slice(1);
+  else if (rest.startsWith('0') && rest.length === 10) rest = rest.slice(1);
+  if (rest.length === 9 && /^\d+$/.test(rest)) return '+375' + rest;
+  if (rest.length === 7 && rest.startsWith('0')) return '+37517' + rest.slice(1);
+  return '+' + digits;
+}
+function formatPhone(p) {
+  const m = (p || '').match(/^\+375(\d{2})(\d{3})(\d{2})(\d{2})$/);
+  return m ? ('+375 ' + m[1] + ' ' + m[2] + '-' + m[3] + '-' + m[4]) : p;
+}
+/* Поле телефона: при потере фокуса приводим к виду +375 XX XXX-XX-XX. */
+function attachPhoneInput(inputSel, hintSel) {
+  const inp = document.querySelector(inputSel);
+  const hint = hintSel ? document.querySelector(hintSel) : null;
+  if (!inp) return;
+  inp.addEventListener('blur', () => {
+    const raw = inp.value.trim();
+    if (!raw) { if (hint) hint.textContent = ''; return; }
+    const n = normalizePhone(raw);
+    const ok = /^\+375(25|29|33|44|17)\d{7}$/.test(n);
+    inp.value = ok ? formatPhone(n) : n;
+    if (hint) {
+      hint.textContent = ok ? ('Телефон: ' + formatPhone(n))
+        : ('Не похож на белорусский номер (' + n + '). Примеры: 8029 1234567, +375 29 123-45-67, 291234567');
+    }
+  });
 }
 
 const fmtDT = (s) => s ? new Date(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '';
@@ -70,7 +113,7 @@ async function fillSelects() {
 
 $('#k-submit').onclick = async () => {
   const body = {
-    contact_person: $('#k-contact').value.trim(), phone: $('#k-phone').value.trim(),
+    contact_person: $('#k-contact').value.trim(), phone: normalizePhone($('#k-phone').value.trim()),
     work_code: $('#k-work').value, priority: $('#k-priority').value,
     address: $('#k-address').value.trim(), equipment: $('#k-equipment').value.trim() || null,
     serial: $('#k-serial').value.trim() || null, comment: $('#k-comment').value.trim(),
@@ -149,6 +192,7 @@ async function loadDeliveries() {
 
 /* --------------------------------------------------------------- запуск */
 async function boot() {
+  attachPhoneInput('#k-phone', '#k-phone-hint');
   try { S.user = await api('/api/auth/me'); } catch { S.token = ''; localStorage.removeItem('crm_token'); return showLogin(); }
   if (S.user.role !== 'client') { toast('Этот вход — для клиентов. Диспетчерам: /dispatcher, инженерам: /m'); S.token = ''; localStorage.removeItem('crm_token'); return showLogin(); }
   S.cfg = await api('/api/config');
