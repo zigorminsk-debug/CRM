@@ -29,7 +29,7 @@ async function api(path, opts = {}) {
     ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}),
     ...(opts.headers || {}),
   } };
-  if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
+  if (o.body && typeof o.body !== 'string' && !(o.body instanceof Blob) && !(o.body instanceof FormData)) o.body = JSON.stringify(o.body);
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }

@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import os
+import sqlite3
 import time
 from datetime import date, datetime, timedelta
 
@@ -182,7 +183,8 @@ class WorkIn(BaseModel):
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "time": db.now(), "version": updates.version_info()["version"],
-            "db": os.path.basename(db.DB_PATH), "zone_count": len(zones.all_zones())}
+            "db": os.path.basename(db.DB_PATH), "data_dir": db.DATA_DIR,
+            "zone_count": len(zones.all_zones())}
 
 
 @app.get("/api/version")
@@ -385,6 +387,103 @@ def api_geo_settlements(q: str = Query(..., min_length=2, max_length=80),
                         user: dict = Depends(auth.current_user)) -> list[dict]:
     """Подсказки населённых пунктов (Минск и Минская область)."""
     return geocode.search_settlements(q)
+
+
+@app.get("/api/admin/backup/info")
+def api_backup_info(user: dict = Depends(auth.require_roles("admin", "operator"))) -> dict:
+    """Где лежит база, её размер и имеющиеся копии (data/backups)."""
+    def _dir_items():
+        items = []
+        try:
+            for name in os.listdir(db.BACKUP_DIR):
+                p = os.path.join(db.BACKUP_DIR, name)
+                if os.path.isfile(p):
+                    items.append({"name": name, "size": os.path.getsize(p),
+                                  "modified": datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M:%S")})
+        except OSError:
+            pass
+        return sorted(items, key=lambda x: x["name"], reverse=True)
+
+    size = os.path.getsize(db.DB_PATH) if os.path.exists(db.DB_PATH) else 0
+    return {"ok": True, "data_dir": db.DATA_DIR, "db_file": os.path.basename(db.DB_PATH),
+            "db_size": size, "backups": _dir_items()}
+
+
+@app.get("/api/admin/backup")
+def api_backup_download(user: dict = Depends(auth.require_roles("admin", "operator"))) -> FileResponse:
+    """Выгрузить базу в бэкап: консистентная копия + скачивание файла."""
+    os.makedirs(db.BACKUP_DIR, exist_ok=True)
+    stamp = "".join(ch for ch in db.now() if ch.isdigit())[:14]
+    path = os.path.join(db.BACKUP_DIR, f"crm-backup-{stamp}.sqlite")
+    db.backup_to(path)
+    db.audit(user.get("username"), "backup.export", {"file": os.path.basename(path)})
+    return FileResponse(path, filename=os.path.basename(path),
+                        media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{os.path.basename(path)}"'})
+
+
+@app.post("/api/admin/backup/restore")
+async def api_backup_restore(request: Request,
+                             user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    """Загрузить базу из бэкапа (только администратор).
+
+    Тело запроса — файл .sqlite. Текущая база перед заменой сохраняется
+    в data/backups/auto-before-restore-*.sqlite.
+    """
+    data = await request.body()
+    if len(data) < 100 or not data.startswith(b"SQLite format 3\x00"):
+        raise HTTPException(422, "Это не файл базы SQLite — загрузите файл, выгруженный кнопкой «Выгрузить базу в бэкап»")
+    os.makedirs(db.BACKUP_DIR, exist_ok=True)
+    tmp = os.path.join(db.BACKUP_DIR, f"upload-{''.join(ch for ch in db.now() if ch.isdigit())[:14]}.tmp")
+    with open(tmp, "wb") as f:
+        f.write(data)
+
+    # проверка копии: целостность и наличие ключевых таблиц
+    try:
+        chk = sqlite3.connect(tmp)
+        try:
+            ic = chk.execute("PRAGMA integrity_check").fetchone()[0]
+            if ic != "ok":
+                raise HTTPException(422, f"Файл повреждён (integrity_check: {ic})")
+            tables = {r[0] for r in chk.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            for need in ("users", "requests", "works", "zones"):
+                if need not in tables:
+                    raise HTTPException(422, f"В файле нет таблицы {need} — это не база CRM")
+            counts = {t: chk.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                      for t in ("users", "requests", "engineers", "contractors")}
+        finally:
+            chk.close()
+    except HTTPException:
+        os.remove(tmp)
+        raise
+    except sqlite3.Error as exc:
+        os.remove(tmp)
+        raise HTTPException(422, f"Файл не читается как база SQLite: {exc}")
+
+    # страховка: текущая база -> auto-before-restore-*.sqlite
+    stamp = "".join(ch for ch in db.now() if ch.isdigit())[:14]
+    safety = os.path.join(db.BACKUP_DIR, f"auto-before-restore-{stamp}.sqlite")
+    try:
+        db.backup_to(safety)
+    except sqlite3.Error:
+        safety = ""
+    db.restore_from(tmp)
+    _keep_last_backups(20)
+    db.audit(user.get("username"), "backup.restore",
+             {"users": counts["users"], "requests": counts["requests"], "safety_copy": os.path.basename(safety) or "-"})
+    return {"ok": True, "message": f"База восстановлена: пользователей {counts['users']}, заявок {counts['requests']}",
+            "safety_copy": os.path.basename(safety) if safety else None, "counts": counts}
+
+
+def _keep_last_backups(limit: int = 20) -> None:
+    """В data/backups храним не больше limit последних файлов."""
+    try:
+        files = sorted((os.path.join(db.BACKUP_DIR, n) for n in os.listdir(db.BACKUP_DIR)
+                        if n.endswith(".sqlite")), key=os.path.getmtime, reverse=True)
+        for extra in files[limit:]:
+            os.remove(extra)
+    except OSError:
+        pass
 
 
 @app.get("/api/engineer/history")

@@ -29,7 +29,7 @@ async function api(path, opts = {}) {
     ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}),
     ...(opts.headers || {}),
   } };
-  if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
+  if (o.body && typeof o.body !== 'string' && !(o.body instanceof Blob) && !(o.body instanceof FormData)) o.body = JSON.stringify(o.body);
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
@@ -341,6 +341,47 @@ $('#purge-demo').onclick = async () => {
   } catch (e) { toast(e.message); }
 };
 
+/* ------------------------------------------------ резервная копия базы */
+async function loadBackupInfo() {
+  try {
+    const i = await api('/api/admin/backup/info');
+    const mb = (i.db_size / 1048576).toFixed(2);
+    const last = (i.backups || [])[0];
+    $('#backup-info').textContent = `Папка базы: ${i.data_dir} · файл ${i.db_file} (${mb} МБ)`
+      + (last ? ` · последняя копия: ${last.name} (${(last.size / 1048576).toFixed(2)} МБ, ${last.modified})` : '');
+  } catch (e) { /* не критично */ }
+}
+
+$('#backup-dl').onclick = async () => {
+  try {
+    const r = await fetch('/api/admin/backup', { headers: { Authorization: 'Bearer ' + S.token } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^";]+)"?/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'crm-backup.sqlite';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Бэкап скачан: ' + a.download, 6000);
+    loadBackupInfo();
+  } catch (e) { toast('Не удалось выгрузить бэкап: ' + e.message); }
+};
+
+$('#backup-restore').onclick = async () => {
+  const inp = $('#backup-file');
+  const file = inp.files && inp.files[0];
+  if (!file) { toast('Сначала выберите файл бэкапа (.sqlite)'); return; }
+  if (!confirm(`Заменить текущую базу файлом «${file.name}»?\n\nТекущие данные перед заменой будут автоматически сохранены в data/backups.`)) return;
+  try {
+    const r = await api('/api/admin/backup/restore', { method: 'POST', body: file,
+      headers: { 'Content-Type': 'application/octet-stream' } });
+    toast(r.message + (r.safety_copy ? ' (прошлая база: ' + r.safety_copy + ')' : ''), 9000);
+    setTimeout(() => location.reload(), 2500);
+  } catch (e) { toast('Восстановление не выполнено: ' + e.message, 9000); }
+};
+
 /* --------------------------------------------- пользователи (4 раздела) */
 const ROLE_LABELS = { client: 'Клиент', engineer: 'Инженер', operator: 'Диспетчер', admin: 'Администратор' };
 const NU = { role: 'client', users: [] };
@@ -479,6 +520,7 @@ async function boot() {
   $('#r-from').value = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   $('#r-to').value = new Date().toISOString().slice(0, 10);
   statusOptions(); await loadSelects(); await loadRequests(); startLive();
+  loadBackupInfo();
 }
 function showLogin() { $('#login').hidden = false; $('#app').hidden = true; }
 

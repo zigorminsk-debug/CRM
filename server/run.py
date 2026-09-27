@@ -90,6 +90,9 @@ def _print_addresses(host: str, port: int) -> None:
     else:
         print("  с других устройств:   http://<IP этого компьютера>:" f"{port}  (узнать: ipconfig)")
     print("  разделы: /admin — админка, /m — приложение инженера, /docs — описание API")
+    from app.db import DATA_DIR
+    print(f"  база данных (папка data): {DATA_DIR}")
+    print("  перенос на новый сервер: остановите, скопируйте папку data рядом с новым exe, запустите")
     if getattr(sys, "frozen", False) and os.name == "nt":
         print("Если с другого устройства адрес не открывается — разрешите порт "
               f"{port} во входящих правилах брандмауэра Windows.")

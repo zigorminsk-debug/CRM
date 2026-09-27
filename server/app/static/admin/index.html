@@ -185,6 +185,18 @@
         <button id="purge-demo" class="danger">Очистить базу от демо-записей…</button>
       </div>
     </div>
+    <div class="report-block">
+      <b>Резервная копия базы.</b> Файл базы (data/crm.sqlite3) можно выгрузить и потом восстановить
+      на этом или любом другом сервере: остановите сервер, положите папку <b>data</b> рядом с новым
+      CRM-Server.exe — он сам её подхватит. Перед восстановлением текущая база автоматически
+      сохраняется в data/backups/auto-before-restore-*.sqlite.
+      <div class="toolbar" style="margin-top:10px">
+        <button id="backup-dl">Выгрузить базу в бэкап</button>
+        <input type="file" id="backup-file" accept=".sqlite,.sqlite3,.db" style="max-width:280px">
+        <button id="backup-restore" class="danger">Загрузить базу из бэкапа…</button>
+      </div>
+      <div class="muted" id="backup-info" style="margin-top:6px;font-size:12px"></div>
+    </div>
   </section>
 
   <section id="tab-audit" class="tab">

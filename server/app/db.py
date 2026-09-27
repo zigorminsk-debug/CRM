@@ -15,11 +15,39 @@ from . import _runtime
 
 if os.environ.get("CRM_DB"):
     DB_PATH = os.environ["CRM_DB"]
+elif os.environ.get("CRM_DATA_DIR"):
+    # вся база в указанной папке (переносимой): CRM_DATA_DIR=/D/crm-data
+    DB_PATH = os.path.join(os.environ["CRM_DATA_DIR"], "crm.sqlite3")
 elif _runtime.is_frozen():
-    # exe: база живёт рядом с CRM-Server.exe, чтобы переживать перезапуски
+    # exe: база живёт в папке data рядом с CRM-Server.exe, чтобы переживать
+    # перезапуски и обновления: новый exe подхватывает ту же папку data
     DB_PATH = os.path.join(_runtime.writable_dir("data"), "crm.sqlite3")
 else:
     DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "crm.sqlite3")
+
+DATA_DIR = os.path.dirname(DB_PATH)
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+
+_README = """Эта папка — ВСЯ база данных Cartridge Engineer.
+crm.sqlite3          — база (заявки, пользователи, контрагенты, зоны, настройки)
+backups/             — резервные копии (кнопки «Выгрузить/Загрузить базу» в админке)
+
+Как перенести базу на новый/обновлённый сервер:
+  1. Остановите сервер (закройте окно CRM-Server.exe).
+  2. Скопируйте эту папку data в папку с новым CRM-Server.exe (или укажите
+     путь к ней переменной окружения CRM_DATA_DIR).
+  3. Запустите сервер — он подхватит базу со всеми данными.
+Резервную копию можно также скачать кнопкой «Выгрузить базу в бэкап»
+(Админка → Настройки → Обслуживание базы) и восстановить ею же.
+"""
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    _rm = os.path.join(DATA_DIR, "README.txt")
+    if not os.path.exists(_rm):
+        with open(_rm, "w", encoding="utf-8") as _f:
+            _f.write(_README)
+except OSError:
+    pass
 
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
@@ -330,6 +358,45 @@ def tx():
         except Exception:
             conn.rollback()
             raise
+
+
+def reopen() -> None:
+    """Закрыть соединение (после подмены файла базы откроется заново)."""
+    global _conn
+    with _lock:
+        if _conn is not None:
+            try:
+                _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
+            _conn.close()
+            _conn = None
+
+
+def backup_to(path: str) -> None:
+    """Консистентная копия базы через sqlite backup API (можно при живом сервере)."""
+    with _lock:
+        dst = sqlite3.connect(path)
+        try:
+            get_conn().backup(dst)
+            dst.commit()
+        finally:
+            dst.close()
+
+
+def restore_from(path: str) -> None:
+    """Подменить файл базы проверенной копией и переоткрыть соединение."""
+    global _conn
+    with _lock:
+        reopen()
+        for suffix in ("-wal", "-shm"):
+            try:
+                os.remove(DB_PATH + suffix)
+            except OSError:
+                pass
+        os.replace(path, DB_PATH)
+        _conn = None
+        get_conn()          # схема + миграции применятся к восстановленной базе
 
 
 def q(sql: str, args: tuple | list = ()) -> list[sqlite3.Row]:
