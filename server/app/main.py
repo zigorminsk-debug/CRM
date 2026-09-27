@@ -579,6 +579,35 @@ def api_engineer_update(eid: int, inp: EngineerIn, user: dict = Depends(auth.req
     return db.row2dict(db.q1("SELECT * FROM engineers WHERE id=?", (eid,)))
 
 
+@app.delete("/api/admin/engineers/{eid}")
+def api_engineer_delete(eid: int, user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    """Удаление инженера. Заявки остаются в истории, но открепляются от инженера
+    (открытые становятся нераспределёнными); зоны и отпуска удаляются."""
+    eng = db.q1("SELECT * FROM engineers WHERE id=?", (eid,))
+    if not eng:
+        raise HTTPException(404, "Инженер не найден")
+    counts = {
+        "requests_unlinked": db.q1("SELECT COUNT(*) AS c FROM requests WHERE engineer_id=?", (eid,))["c"],
+        "open_requests_unassigned": db.q1(
+            "SELECT COUNT(*) AS c FROM requests WHERE engineer_id=? "
+            "AND status IN ('new','assigned','in_progress','pickup_office')", (eid,))["c"],
+        "zones_removed": db.q1("SELECT COUNT(*) AS c FROM zone_assignments WHERE engineer_id=?", (eid,))["c"],
+        "absences_removed": db.q1("SELECT COUNT(*) AS c FROM absences WHERE engineer_id=?", (eid,))["c"],
+    }
+    db.execute("UPDATE absences SET replacement_engineer_id=NULL WHERE replacement_engineer_id=?", (eid,))
+    db.execute("UPDATE requests SET engineer_id=NULL WHERE engineer_id=?", (eid,))
+    db.execute("UPDATE deliveries SET engineer_id=NULL WHERE engineer_id=?", (eid,))
+    db.execute("UPDATE users SET engineer_id=NULL WHERE engineer_id=?", (eid,))
+    db.execute("DELETE FROM zone_assignments WHERE engineer_id=?", (eid,))
+    db.execute("DELETE FROM absences WHERE engineer_id=?", (eid,))
+    db.execute("DELETE FROM route_plans WHERE engineer_id=?", (eid,))
+    db.execute("DELETE FROM outbox WHERE engineer_id=?", (eid,))
+    db.execute("DELETE FROM engineers WHERE id=?", (eid,))
+    db.audit(user["username"], "engineer.delete",
+             {"id": eid, "name": eng["full_name"], **counts})
+    return {"ok": True, "name": eng["full_name"], **counts}
+
+
 ROLES = ("admin", "operator", "engineer", "client")
 ROLE_LABELS = {"admin": "Администратор", "operator": "Диспетчер",
                "engineer": "Инженер", "client": "Клиент"}

@@ -185,7 +185,21 @@ async function loadEngineers() {
       el('td', {}, e.absence ? `${e.absence.kind} ${e.absence.date_from}—${e.absence.date_to}` : '—'),
       el('td', {}, e.active ? 'да' : 'нет'),
       el('td', {}, el('button', { onclick: async () => { const n = prompt('ФИО', e.full_name); if (!n) return; const p = prompt('Телефон', e.phone || ''); await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: n, phone: p, active: e.active, base_lat: e.base_lat, base_lon: e.base_lon } }); toast('Сохранено'); loadEngineers(); } }, 'Изменить'),
-        el('button', { onclick: async () => { await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: e.full_name, phone: e.phone, active: e.active ? 0 : 1, base_lat: e.base_lat, base_lon: e.base_lon } }); loadEngineers(); } }, e.active ? 'Отключить' : 'Включить')))
+        ' ',
+        el('button', { onclick: async () => { await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: e.full_name, phone: e.phone, active: e.active ? 0 : 1, base_lat: e.base_lat, base_lon: e.base_lon } }); loadEngineers(); } }, e.active ? 'Отключить' : 'Включить'),
+        ' ',
+        el('button', { class: 'danger', onclick: async () => {
+          const msg = `Удалить инженера ${e.full_name}?\n\n` +
+            `Зон в ведении: ${e.zones_count}. Они останутся без ответственного.\n` +
+            `Открытых заявок: ${e.open_tasks} — станут нераспределёнными.\n` +
+            `Закрытые заявки останутся в истории без имени инженера.`;
+          if (!confirm(msg)) return;
+          try {
+            const r = await api('/api/admin/engineers/' + e.id, { method: 'DELETE' });
+            toast(`Инженер ${r.name} удалён (откреплено заявок: ${r.requests_unlinked})`, 6000);
+            loadEngineers(); loadSelects();
+          } catch (err) { toast(err.message); }
+        } }, 'Удалить')))
     );
   }
 }

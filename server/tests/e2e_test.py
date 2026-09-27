@@ -273,6 +273,25 @@ def main() -> int:
         st2, _other = call("GET", "/api/client/requests/" + str(cl_req["id"]), token=TOKEN["engineer"])
         check(st2 == 403, "Чужой клиент не видит заявку (по УНП)")
 
+    # -------------------------------------- удаление инженера (с откреплением)
+    st, ne = call("POST", "/api/admin/engineers", {"full_name": "Тестовый инженер", "phone": "+375290000000"}, token=TOKEN["admin"])
+    ne_id = ne.get("id") if st in (200, 201) else None
+    check(bool(ne_id), "Создан инженер для проверки удаления")
+    st, reqs_list = call("GET", "/api/requests?limit=1", token=TOKEN["admin"])
+    first_req = (reqs_list.get("items") or [{}])[0] if st == 200 else {}
+    if first_req.get("id") and first_req.get("engineer_id"):
+        st, del1 = call("DELETE", f"/api/admin/engineers/{first_req['engineer_id']}", token=TOKEN["admin"])
+        check(st == 200 and del1.get("ok") and del1.get("requests_unlinked", 0) >= 1,
+              "Инженер с заявками удаляется, заявки открепляются",
+              f"откреплено: {del1.get('requests_unlinked', '?')}")
+        st, req_after = call("GET", f"/api/requests/{first_req['id']}", token=TOKEN["admin"])
+        check(st == 200 and req_after.get("engineer_id") is None, "Заявка осталась в истории без инженера")
+    if ne_id:
+        st, del2 = call("DELETE", f"/api/admin/engineers/{ne_id}", token=TOKEN["admin"])
+        check(st == 200 and del2.get("ok"), "Удаление инженера без заявок")
+        st, engs_list = call("GET", "/api/admin/engineers", token=TOKEN["admin"])
+        check(all(x.get("id") != ne_id for x in engs_list), "Удалённый инженер исчез из списка")
+
     # --------------------------------- очистка базы от демо (в самом конце)
     st, purge = call("POST", "/api/admin/purge-demo", token=TOKEN["admin"])
     check(st == 200 and purge.get("ok"), "Очистка базы от демо-записей",

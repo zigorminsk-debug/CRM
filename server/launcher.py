@@ -86,6 +86,9 @@ class ControlPanel:
         self.btn_browser = ttk.Button(row, text="Открыть в браузере", command=self.open_browser,
                                       state="disabled")
         self.btn_browser.pack(side="left")
+        if os.name == "nt":
+            self.btn_fw = ttk.Button(row, text="Разрешить в брандмауэре", command=self.allow_firewall)
+            self.btn_fw.pack(side="left", padx=(4, 0))
 
         self.addr_var = tk.StringVar(value="")
         tk.Label(top, textvariable=self.addr_var, justify="left", fg="#333333").pack(anchor="w")
@@ -181,6 +184,32 @@ class ControlPanel:
     def open_browser(self) -> None:
         if self.announced and self.port:
             webbrowser.open(f"http://127.0.0.1:{self.port}/")
+
+    def allow_firewall(self) -> None:
+        """Одной кнопкой открывает входящий порт в брандмауэре Windows
+        (через UAC): без этого телефоны и другие компьютеры не видят сервер."""
+        if os.name != "nt":
+            return
+        raw = self.port_var.get().strip()
+        if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+            self._set_status("Укажите корректный порт", COLOR_BUSY)
+            return
+        try:
+            import ctypes
+
+            params = (f'advfirewall firewall add rule name="CRM server {raw}" '
+                      f"dir=in action=allow protocol=TCP localport={raw}")
+            rc = ctypes.windll.shell32.ShellExecuteW(
+                self.root.winfo_id(), "runas", "netsh", params, None, 1)
+            if rc > 32:
+                self._log(f"Правило брандмауэра добавлено: входящий TCP-порт {raw} разрешён. "
+                          "Теперь сервер виден с телефонов и других ПК.")
+            else:
+                self._log("Не удалось добавить правило (отказ в запросе прав?). "
+                          f"Добавьте вручную от администратора: netsh advfirewall firewall "
+                          f'add rule name="CRM server {raw}" dir=in action=allow protocol=TCP localport={raw}')
+        except Exception as exc:  # UAC недоступен и т.п.
+            self._log(f"Не получилось открыть порт в брандмауэре: {exc}")
 
     def on_close(self) -> None:
         try:
