@@ -294,24 +294,25 @@ class MainActivity : AppCompatActivity() {
                     if (onsite) "Работы выполнены, заказчик принял" else "Картридж/оборудование забираем в офис"
                 }
                 apiCall({ api.done(task.id, result, comment) },
-                    onError = { runOnUiThread { taskAdapter.notifyDataSetChanged() } }) {
-                    // сразу убираем заявку из маршрута, даже если обновление не пройдёт
-                    tasks = tasks.filter { it.id != task.id }.toMutableList()
-                    taskAdapter.submit(tasks)
-                    findViewById<TextView>(R.id.emptyHint).visibility =
-                        if (tasks.isEmpty()) View.VISIBLE else View.GONE
-                    refresh()
-                    if (onsite) {
-                        toast("Отмечено: выполнено на месте")
-                    } else {
-                        AlertDialog.Builder(this)
-                            .setTitle("Забор оформлен")
-                            .setMessage("Сервер поставил доставку заказчику на следующий рабочий день.\n" +
-                                    "Если оборудование не готово, дату можно перенести в разделе «Доставка заказчикам».")
-                            .setPositiveButton("Понятно", null)
-                            .show()
-                    }
-                }
+                    onOk = {
+                        // сразу убираем заявку из маршрута, даже если обновление не пройдёт
+                        tasks = tasks.filter { it.id != task.id }.toMutableList()
+                        taskAdapter.submit(tasks)
+                        findViewById<TextView>(R.id.emptyHint).visibility =
+                            if (tasks.isEmpty()) View.VISIBLE else View.GONE
+                        refresh()
+                        if (onsite) {
+                            toast("Отмечено: выполнено на месте")
+                        } else {
+                            AlertDialog.Builder(this)
+                                .setTitle("Забор оформлен")
+                                .setMessage("Сервер поставил доставку заказчику на следующий рабочий день.\n" +
+                                        "Если оборудование не готово, дату можно перенести в разделе «Доставка заказчикам».")
+                                .setPositiveButton("Понятно", null)
+                                .show()
+                        }
+                    },
+                    onError = { taskAdapter.notifyDataSetChanged() })
             }
             .setNegativeButton("Отмена", null)
             .show()
@@ -351,20 +352,21 @@ class MainActivity : AppCompatActivity() {
             }
             if (days < 1) {
                 toast("Выберите дату позже текущей (${d.scheduledDate})")
-                return@DatePickerDialog
-            }
-            val input = EditText(this).apply { hint = "Что не готово?" }
-            AlertDialog.Builder(this)
-                .setTitle("Перенести на $y-%02d-%02d".format(m + 1, dOfM))
-                .setView(input)
-                .setPositiveButton("Перенести") { _, _ ->
-                    apiCall({ api.deliveryPostpone(d.id, days, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
-                        toast("Доставка перенесена")
-                        refresh()
+            } else {
+                val title = String.format("Перенести на %04d-%02d-%02d", y, m + 1, dOfM)
+                val input = EditText(this).apply { hint = "Что не готово?" }
+                AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setView(input)
+                    .setPositiveButton("Перенести") { _, _ ->
+                        apiCall({ api.deliveryPostpone(d.id, days, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
+                            toast("Доставка перенесена")
+                            refresh()
+                        }
                     }
-                }
-                .setNegativeButton("Отмена", null)
-                .show()
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
         }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
             cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
