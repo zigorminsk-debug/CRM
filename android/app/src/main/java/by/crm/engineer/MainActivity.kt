@@ -109,38 +109,35 @@ class MainActivity : AppCompatActivity() {
     /** История: исполненные заявки инженера (done/closed), свежие сверху. */
     private fun showHistory() {
         apiCall({
-            val res = api.history()
+            val res = try { api.history() } catch (e: Exception) {
+                runOnUiThread { toast("Сервер недоступен: ${e.message}") }
+                return@apiCall
+            }
             val arr = res.optJSONArray("items") ?: org.json.JSONArray()
-            val titles = mutableListOf<String>()
-            val subs = mutableListOf<String>()
+            val sb = StringBuilder()
+            var n = 0
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val done = o.optString("done_at")
                 val d = if (done.length >= 10) done.substring(0, 10) else o.optString("planned_date")
-                titles.add("${o.optString("number")} · ${o.optString("status_label")} · $d")
-                subs.add(listOf(o.optString("work_name"), o.optString("address"))
-                    .filter { it.isNotBlank() }.joinToString(" · "))
+                val sub = listOf(o.optString("work_name"), o.optString("address"))
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+                sb.append(o.optString("number")).append(" · ")
+                    .append(o.optString("status_label")).append(" · ").append(d).append('\n')
+                if (sub.isNotBlank()) sb.append(sub).append('\n')
+                sb.append('\n')
+                n++
+                if (n >= 60) { sb.append("… показаны последние 60 из ${arr.length()}"); break }
             }
+            val text = if (n == 0) "Исполненных заявок пока нет." else sb.toString().trim()
             runOnUiThread {
-                if (titles.isEmpty()) {
-                    AlertDialog.Builder(this).setTitle("История")
-                        .setMessage("Исполненных заявок пока нет.")
-                        .setPositiveButton("Закрыть", null).show()
-                } else {
-                    val adapter = object : android.widget.ArrayAdapter<String>(
-                        this, android.R.layout.simple_list_item_2, titles
-                    ) {
-                        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
-                            val v = super.getView(position, convertView, parent)
-                            val sub = v.findViewById<TextView>(android.R.id.text2)
-                            sub.text = subs[position]
-                            return v
-                        }
-                    }
+                try {
                     AlertDialog.Builder(this)
-                        .setTitle("Исполненные заявки: ${titles.size}")
-                        .setAdapter(adapter, null)
+                        .setTitle(if (n == 0) "История" else "Исполненные заявки: $n")
+                        .setMessage(text)
                         .setPositiveButton("Закрыть", null).show()
+                } catch (e: Exception) {
+                    toast(text.substring(0, minOf(300, text.length)))
                 }
             }
         })
