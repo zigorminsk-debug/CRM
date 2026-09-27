@@ -113,6 +113,39 @@ def _print_addresses(host: str, port: int) -> None:
         print("Если с другого устройства адрес не открывается — разрешите порт "
               f"{port} во входящих правилах брандмауэра Windows.")
 
+def _can_bind(host: str, port: int) -> str | None:
+    """Свободен ли порт: возвращает текст ошибки или None, если можно запускаться."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, port))
+        return None
+    except OSError as e:
+        return str(e)
+    finally:
+        probe.close()
+
+
+def _pause_if_frozen() -> None:
+    """Окно собранного exe не должно исчезать молча — ждём Enter, чтобы всё прочитать."""
+    if getattr(sys, "frozen", False):
+        try:
+            input("Нажмите Enter для выхода...")
+        except (EOFError, OSError):
+            pass
+
+
+def _write_crash_log(text: str) -> str | None:
+    """Пытаемся сохранить ошибку в файл рядом с exe — вдруг окно всё же закроется."""
+    try:
+        base = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.getcwd()
+        path = os.path.join(base, "crm-server-error.txt")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+    except OSError:
+        return None
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
     # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
@@ -126,6 +159,18 @@ if __name__ == "__main__":
     _console_tweaks()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
+
+    # Порт проверяем ДО запуска: занятый порт — самая частая причина
+    # «окно мигнуло и закрылось» (uvicorn завершается с SystemExit).
+    busy = _can_bind(host, port)
+    if busy:
+        print(f"CRM server: не удалось занять порт {port}: {busy}")
+        print(f"Порт {port} уже занят — возможно, CRM-Server.exe уже запущен "
+              "(закройте старое окно или снимите задачу: taskkill /F /IM CRM-Server.exe).")
+        print(f"Либо запустите на другом порту:  set PORT=8010 && CRM-Server.exe  →  http://127.0.0.1:8010")
+        _pause_if_frozen()
+        raise SystemExit(1)
+
     _print_addresses(host, port)
     try:
         if getattr(sys, "frozen", False):
@@ -141,6 +186,27 @@ if __name__ == "__main__":
         print(f"\nНе хватает прав записи в папку приложения: {e}")
         print("Перенесите CRM-Server.exe в папку с правами записи (например, C:\\CRM)")
         print("или укажите путь к базе переменной окружения CRM_DB.")
-        if getattr(sys, "frozen", False):
-            input("Нажмите Enter для выхода...")
+        _pause_if_frozen()
         raise SystemExit(1)
+    except KeyboardInterrupt:
+        print("\nСервер остановлен (Ctrl+C).")
+    except SystemExit as e:
+        if e.code not in (0, None):
+            # сюда попадает и sys.exit(1) самого uvicorn (например, порт успели занять)
+            print(f"\nСервер остановлен с кодом {e.code}.")
+            print("Частые причины: порт занят другим процессом (запустите с set PORT=8010)")
+            print("или нет прав записи в папке (перенесите exe, например, в C:\\CRM).")
+            _pause_if_frozen()
+        raise
+    except BaseException:
+        import traceback
+        trace = traceback.format_exc()
+        print(f"\nНепредвиденная ошибка:\n{trace}")
+        saved = _write_crash_log(trace)
+        if saved:
+            print(f"Описание ошибки сохранено в файл: {saved}")
+        _pause_if_frozen()
+        raise SystemExit(1)
+    print("Сервер остановлен.")
+    _pause_if_frozen()
+
