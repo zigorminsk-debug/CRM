@@ -22,8 +22,11 @@ import json
 import os
 
 FILES = {
-    "windows": ("CRM-Windows.exe", "Клиент для Windows (приём заявок)"),
-    "android": ("CRM-Engineer.apk", "Приложение инженера для Android"),
+    "windows": (("CRM-Windows.exe", "Клиент для Windows (приём заявок)"),),
+    "android": (("CRM-Engineer.apk", "Приложение инженера для Android"),),
+    "server": (("crm-server.zip", "Сервер (Python)"),),
+    "sources": (("crm-sources.zip", "Исходники клиента Windows и Android"),),
+    "readme": (("README.txt", "Краткая инструкция"),),
 }
 
 
@@ -63,15 +66,16 @@ def main() -> int:
         "latest_page": f"https://github.com/{args.repo}/releases/latest",
     }
 
-    for key, (name, title) in FILES.items():
-        path = os.path.join(args.dir, name)
-        if not os.path.isfile(path):
-            print(f"  {key}: {name} — нет в {args.dir}, пропущен")
-            continue
-        info = file_info(path, f"{base_url}/{name}")
-        info["title"] = title
-        manifest[key] = info
-        print(f"  {key}: {name}, {info['size'] // 1024} КБ, sha256={info['sha256'][:16]}…")
+    for key, entries in FILES.items():
+        for name, title in entries:
+            path = os.path.join(args.dir, name)
+            if not os.path.isfile(path):
+                print(f"  {key}: {name} — нет в {args.dir}, пропущен")
+                continue
+            info = file_info(path, f"{base_url}/{name}")
+            info["title"] = title
+            manifest[key] = info
+            print(f"  {key}: {name}, {info['size'] // 1024} КБ, sha256={info['sha256'][:16]}…")
 
     out = args.out or os.path.join(args.dir, "update.json")
     with open(out, "w", encoding="utf-8") as f:
