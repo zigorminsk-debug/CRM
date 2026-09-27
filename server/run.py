@@ -108,12 +108,40 @@ def _can_bind(host: str, port: int) -> str | None:
 
 
 def _pause_if_frozen() -> None:
-    """Окно собранного exe не должно исчезать молча — ждём Enter, чтобы всё прочитать."""
-    if getattr(sys, "frozen", False):
+    """В консоли ждём Enter; в оконном exe (stdin отсутствует) молча выходим."""
+    if getattr(sys, "frozen", False) and getattr(sys, "stdin", None) is not None:
         try:
             input("Нажмите Enter для выхода...")
-        except (EOFError, OSError):
+        except (EOFError, OSError, RuntimeError):
             pass
+
+
+def _is_windowed_app() -> bool:
+    """Оконный exe без консоли: PyInstaller не создаёт stdin — input() недоступен."""
+    return getattr(sys, "frozen", False) and getattr(sys, "stdin", None) is None
+
+
+def _msgbox(title: str, text: str) -> None:
+    """Диалог Windows — единственный видимый канал сообщений оконного exe."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, text, title, 0x00000040)  # MB_ICONINFORMATION
+    except Exception:
+        pass
+
+
+def _fatal(message: str, title: str = "CRM — сервер заявок") -> None:
+    """Показать ошибку там, где её реально увидят: диалог в оконном exe, консоль иначе."""
+    saved = _write_crash_log(message)
+    if saved:
+        message += f"\n\nОписание ошибки сохранено в файл:\n{saved}"
+    if _is_windowed_app():
+        _msgbox(title, message)
+    else:
+        print(message)
+        _pause_if_frozen()
 
 
 def _write_crash_log(text: str) -> str | None:
@@ -134,11 +162,12 @@ def run_console(host: str, port: int) -> None:
     # «окно мигнуло и закрылось» (uvicorn завершается с SystemExit).
     busy = _can_bind(host, port)
     if busy:
-        print(f"CRM server: не удалось занять порт {port}: {busy}")
-        print(f"Порт {port} уже занят — возможно, CRM-Server.exe уже запущен "
-              "(закройте старое окно или снимите задачу: taskkill /F /IM CRM-Server.exe).")
-        print(f"Либо запустите на другом порту:  set PORT=8010 && CRM-Server.exe  →  http://127.0.0.1:8010")
-        _pause_if_frozen()
+        _fatal(f"Не удалось занять порт {port}: {busy}\n\n"
+               f"Порт {port} уже занят — возможно, CRM-Server.exe уже запущен.\n"
+               "Закройте старое окно сервера или снимите задачу:\n"
+               "    taskkill /F /IM CRM-Server.exe\n\n"
+               "Либо запустите на другом порту:\n"
+               "    set PORT=8010 && CRM-Server.exe   →  http://127.0.0.1:8010")
         raise SystemExit(1)
 
     _print_addresses(host, port)
@@ -153,10 +182,9 @@ def run_console(host: str, port: int) -> None:
     except PermissionError as e:
         # CRM-Server.exe лежит в папке без прав на запись (например, C:\Program Files):
         # рядом с собой он не может создать базу данных и папку раздачи.
-        print(f"\nНе хватает прав записи в папку приложения: {e}")
-        print("Перенесите CRM-Server.exe в папку с правами записи (например, C:\\CRM)")
-        print("или укажите путь к базе переменной окружения CRM_DB.")
-        _pause_if_frozen()
+        _fatal("Не хватает прав записи в папку приложения:\n"
+               f"{e}\n\nПеренесите CRM-Server.exe в папку с правами записи (например, C:\\CRM)\n"
+               "или укажите путь к базе переменной окружения CRM_DB.")
         raise SystemExit(1)
     except KeyboardInterrupt:
         print("\nСервер остановлен (Ctrl+C).")
@@ -189,14 +217,17 @@ def run_gui(host: str, port: int) -> bool:
     except SystemExit:
         raise
     except ImportError as e:
-        # нет tkinter/дисплея — штатная ситуация, переходим в консоль
-        print(f"Окно управления недоступно ({e.__class__.__name__}: {e}) — консольный режим.")
+        # нет tkinter/дисплея — переходим в консоль, но причину показываем обязательно
+        msg = (f"Окно управления недоступно ({e.__class__.__name__}: {e}).\n\n"
+               "Сервер будет запущен в фоновом режиме без окна.\n"
+               f"Адрес для входа: http://127.0.0.1:{port}\n"
+               "Адреса для телефонов — в сообщении о запуске (консоль/журнал).")
+        _fatal(msg, "CRM server — окно управления")
         return False
     except BaseException:  # прочие сбои окна — показываем причину и уходим в консоль
         import traceback
-        trace = traceback.format_exc()
-        print(f"Окно управления упало с ошибкой:\n{trace}")
-        _write_crash_log(trace)
+        _fatal("Окно управления упало с ошибкой:\n" + traceback.format_exc(),
+               "CRM server — окно управления")
         return False
 
 
@@ -218,6 +249,25 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def main() -> None:
+    host, port, no_gui = _parse_and_setup()
+    if not no_gui and run_gui(host, port):
+        raise SystemExit(0)
+    run_console(host, port)
+
+
+def _parse_and_setup() -> tuple[str, int, bool]:
+    args = _parse_args()
+    host = args.host or os.environ.get("HOST", "0.0.0.0")
+    port = args.port or args.port_positional
+    if port is None:
+        env_port = os.environ.get("PORT", "").strip()
+        port = int(env_port) if env_port.isdigit() else 8000
+    port = int(port)
+    no_gui = args.no_gui or os.environ.get("CRM_NO_GUI", "").strip().lower() in ("1", "true", "yes")
+    return host, port, no_gui
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
     # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
@@ -229,16 +279,4 @@ if __name__ == "__main__":
         except (AttributeError, ValueError, OSError):
             pass
     _console_tweaks()
-
-    args = _parse_args()
-    host = args.host or os.environ.get("HOST", "0.0.0.0")
-    port = args.port or args.port_positional
-    if port is None:
-        env_port = os.environ.get("PORT", "").strip()
-        port = int(env_port) if env_port.isdigit() else 8000
-    port = int(port)
-
-    no_gui = args.no_gui or os.environ.get("CRM_NO_GUI", "").strip().lower() in ("1", "true", "yes")
-    if not no_gui and run_gui(host, port):
-        raise SystemExit(0)
-    run_console(host, port)
+    main()
