@@ -89,15 +89,30 @@ jobs:
         env:
           SIGN_PFX: ${{ github.workspace }}/signing/windows-signing.pfx
           SIGN_PFX_PASS: ${{ env.WINDOWS_SIGN_PASSWORD }}
-        run: cd winclient && ./build_windows.sh zig
+        run: |
+          set -o pipefail
+          cd winclient
+          ./build_windows.sh zig 2>&1 | tee "$RUNNER_TEMP/windows-build.log"
       - name: Проверка подписи exe
-        run: osslsigncode verify -in winclient/dist/CRM-Windows.exe
+        run: |
+          set -o pipefail
+          osslsigncode verify -CAfile signing/windows-cert.pem -in winclient/dist/CRM-Windows.exe \
+            2>&1 | tee "$RUNNER_TEMP/windows-sign.log"
       - name: Сохранить exe в артефакты
         uses: actions/upload-artifact@v4
         with:
           name: crm-windows
           path: winclient/dist/CRM-Windows.exe
           if-no-files-found: error
+      - name: Журнал сборки exe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-logs-windows
+          path: |
+            ${{ runner.temp }}/windows-build.log
+            ${{ runner.temp }}/windows-sign.log
+          if-no-files-found: ignore
 
   # ------------------------------------------------- приложение инженера (APK)
   android:
@@ -140,7 +155,10 @@ jobs:
           CRM_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
           CRM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'crm-engineer' }}
           CRM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || env.ANDROID_KEYSTORE_PASSWORD }}
-        run: cd android && ./build_apk.sh
+        run: |
+          set -o pipefail
+          cd android
+          ./build_apk.sh 2>&1 | tee "$RUNNER_TEMP/android-build.log"
       - name: Проверка подписи APK
         run: |
           "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" verify --print-certs android/dist/CRM-Engineer.apk
@@ -149,7 +167,14 @@ jobs:
         with:
           name: crm-android
           path: android/dist/CRM-Engineer.apk
-          if-no-files-found: error
+          if-no-files-found: ignore
+      - name: Журнал сборки APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-logs-android
+          path: ${{ runner.temp }}/android-build.log
+          if-no-files-found: ignore
 
   # --------------------------------------------- релиз с номером и манифестом
   release:
