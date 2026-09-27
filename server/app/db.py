@@ -49,9 +49,11 @@ CREATE TABLE IF NOT EXISTS users (
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     salt          TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer')),
+    role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer','client')),
     full_name     TEXT,
     engineer_id   INTEGER REFERENCES engineers(id),
+    company       TEXT,
+    unp           TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL
 );
@@ -266,8 +268,55 @@ def get_conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            _migrate(_conn)
             _conn.commit()
         return _conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Обновление структуры старых баз (созданных до добавления роли client).
+
+    SQLite не умеет менять CHECK у существующей таблицы — пересоздаём users:
+    + роль 'client' (кабинет заказчика), + колонки company/unp для привязки
+    клиента к организации. Данные пользователей сохраняются.
+    """
+    info = conn.execute("PRAGMA table_info(users)").fetchall()
+    if not info:
+        return
+    cols = {r[1] for r in info}
+    ddl = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").fetchone()[0]
+    need_rebuild = "'client'" not in ddl
+    need_company = "company" not in cols
+    need_unp = "unp" not in cols
+    if not (need_rebuild or need_company or need_unp):
+        return
+    conn.execute("PRAGMA foreign_keys=OFF")
+    if need_rebuild:
+        conn.execute("""CREATE TABLE users_migrated (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt          TEXT NOT NULL,
+            role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer','client')),
+            full_name     TEXT,
+            engineer_id   INTEGER REFERENCES engineers(id),
+            company       TEXT,
+            unp           TEXT,
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL)""")
+        conn.execute("""INSERT INTO users_migrated
+            (id,username,password_hash,salt,role,full_name,engineer_id,company,unp,active,created_at)
+            SELECT id,username,password_hash,salt,role,full_name,engineer_id,NULL,NULL,active,created_at
+            FROM users""")
+        conn.execute("DROP TABLE users")
+        conn.execute("ALTER TABLE users_migrated RENAME TO users")
+    else:
+        if need_company:
+            conn.execute("ALTER TABLE users ADD COLUMN company TEXT")
+        if need_unp:
+            conn.execute("ALTER TABLE users ADD COLUMN unp TEXT")
+    conn.execute("PRAGMA foreign_keys=ON")
+    print("CRM: база обновлена — добавлена роль «клиент» и привязка пользователя к организации")
 
 
 @contextmanager

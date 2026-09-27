@@ -231,9 +231,58 @@ def main() -> int:
     check(st == 200, "Экспорт истории в CSV")
 
     # страницы
-    for path, name in (("/", "главная"), ("/admin", "админка"), ("/m", "мобильное приложение"), ("/downloads", "загрузки")):
+    for path, name in (("/", "главная"), ("/admin", "админка"), ("/m", "мобильное приложение"),
+                       ("/dispatcher", "консоль диспетчера"), ("/client", "кабинет клиента"),
+                       ("/downloads", "загрузки")):
         st, _ = call("GET", path)
         check(st == 200, f"Страница {name} ({path}) открывается")
+
+    # ------------------------------------------------ пользователи (4 роли)
+    st, users_before = call("GET", "/api/admin/users", token=TOKEN["admin"])
+    check(st == 200 and isinstance(users_before, list), "Список пользователей (4 роли)",
+          f"пользователей: {len(users_before) if isinstance(users_before, list) else 0}")
+    st, cl = call("POST", "/api/admin/users", {
+        "username": "testclient", "password": "client123", "role": "client",
+        "full_name": "Тестовый клиент", "company": 'ООО "Тест-Клиент"', "unp": "190999993",
+    }, token=TOKEN["admin"])
+    check(st in (200, 201) and cl.get("role") == "client", "Создан пользователь-клиент (кабинет /client)")
+    st, dup = call("POST", "/api/admin/users", {
+        "username": "testclient2", "password": "client123", "role": "client",
+        "company": "Дубль", "unp": "190999993",
+    }, token=TOKEN["admin"])
+    check(st == 409, "Повторный УНП клиента отклонён")
+
+    # --------------------------------------------------- кабинет клиента
+    st, cl_login = call("POST", "/api/auth/login", {"username": "testclient", "password": "client123", "device": "e2e"})
+    cl_token = cl_login.get("token", "") if st == 200 else ""
+    check(st == 200 and bool(cl_token), "Вход клиента в кабинет")
+    st, cl_req = call("POST", "/api/client/requests", {
+        "contact_person": "Директор", "phone": "+375291234567", "work_code": "ZAP-KARTR",
+        "priority": "normal", "address": "г. Минск, ул. Притыцкого, 62",
+        "comment": "Заявка из кабинета клиента", "equipment": "HP LaserJet",
+    }, token=cl_token)
+    check(st == 201 and cl_req.get("number", "").startswith("ЗП-"), "Клиент подал заявку из кабинета",
+          cl_req.get("number", "") if st == 201 else str(cl_req)[:120])
+    check(st == 201 and cl_req.get("unp") == "190999993", "УНП подставлен из профиля клиента")
+    check(st == 201 and bool(cl_req.get("engineer_id")), "Заявке клиента назначен инженер зоны")
+    st, cl_list = call("GET", "/api/client/requests", token=cl_token)
+    check(st == 200 and all(r.get("unp") == "190999993" for r in cl_list.get("items", [])),
+          "Клиент видит только заявки своей организации",
+          f"заявок: {cl_list.get('total', 0)}")
+    if st == 201:
+        st2, _other = call("GET", "/api/client/requests/" + str(cl_req["id"]), token=TOKEN["engineer"])
+        check(st2 == 403, "Чужой клиент не видит заявку (по УНП)")
+
+    # --------------------------------- очистка базы от демо (в самом конце)
+    st, purge = call("POST", "/api/admin/purge-demo", token=TOKEN["admin"])
+    check(st == 200 and purge.get("ok"), "Очистка базы от демо-записей",
+          f"заявок удалено: {purge.get('deleted', {}).get('requests', 0)}, инженеров: {purge.get('deleted', {}).get('engineers', 0)}")
+    st, after = call("GET", "/api/requests")
+    check(st == 200 and after.get("total") == 0, "После очистки заявок нет")
+    st, engs_after = call("GET", "/api/admin/engineers", token=TOKEN["admin"])
+    check(st == 200 and len(engs_after) == 0, "После очистки демо-инженеров нет")
+    st, works_after = call("GET", "/api/works")
+    check(st == 200 and len(works_after) > 0, "Справочник работ сохранился при очистке")
 
     # прибираем тестовую запись об отпуске, чтобы демо-данные остались как были
     st, absences = call("GET", "/api/admin/absences", token=TOKEN["admin"])

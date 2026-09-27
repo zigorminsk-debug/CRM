@@ -140,6 +140,29 @@ class UserIn(BaseModel):
     role: str
     full_name: str | None = None
     engineer_id: int | None = None
+    company: str | None = None
+    unp: str | None = None
+
+
+class PasswordIn(BaseModel):
+    password: str
+
+
+class ActiveIn(BaseModel):
+    active: int
+
+
+class ClientRequestIn(BaseModel):
+    """Заявка из кабинета клиента: реквизиты организации берутся из профиля."""
+    contact_person: str = Field(..., description="Контактное лицо")
+    phone: str = Field(..., description="Телефон, приводится к +375 XX XXX-XX-XX")
+    work_id: int | None = None
+    work_code: str | None = None
+    priority: str = "normal"
+    address: str = Field(..., description="Адрес: Минск / Минский район")
+    comment: str = ""
+    equipment: str | None = None
+    serial: str | None = None
 
 
 class WorkIn(BaseModel):
@@ -457,6 +480,73 @@ async def api_events_stream(request: Request, user: dict = Depends(auth.current_
 #  Админка: инженеры, зоны, отпуска, справочники, отчёты
 # =====================================================================
 
+# =====================================================================
+#  Кабинет клиента (role=client): свои заявки и доставки по УНП профиля
+# =====================================================================
+
+def _client_profile(user: dict) -> dict:
+    return {"username": user["username"], "full_name": user["full_name"],
+            "company": user.get("company"), "unp": user.get("unp")}
+
+
+def _require_client_unp(user: dict) -> str:
+    unp = (user.get("unp") or "").strip()
+    if not unp:
+        raise HTTPException(422, "В профиле клиента не указан УНП организации — "
+                                 "попросите администратора заполнить его (админка → Пользователи → Клиенты)")
+    return unp
+
+
+@app.get("/api/client/me")
+def api_client_me(user: dict = Depends(auth.require_roles("client"))) -> dict:
+    return _client_profile(user)
+
+
+@app.get("/api/client/requests")
+def api_client_requests(user: dict = Depends(auth.require_roles("client")),
+                        limit: int = 200, offset: int = 0) -> dict:
+    return rs.search({"unp": _require_client_unp(user)}, limit=min(limit, 500), offset=offset)
+
+
+@app.post("/api/client/requests", status_code=201)
+def api_client_create(inp: ClientRequestIn, user: dict = Depends(auth.require_roles("client"))) -> dict:
+    unp = _require_client_unp(user)
+    data = {
+        "contractor": user.get("company") or user.get("full_name") or user["username"],
+        "unp": unp,
+        "bank_account": "",   # кабинет клиента: счёт не обязателен, укажет диспетчер
+        "contact_person": inp.contact_person,
+        "phone": inp.phone,
+        "work_id": inp.work_id,
+        "work_code": inp.work_code,
+        "priority": inp.priority,
+        "address": inp.address,
+        "comment": inp.comment,
+        "equipment": inp.equipment,
+        "serial": inp.serial,
+        "account_optional": True,   # р/с у клиента не спрашиваем — дополнит диспетчер
+    }
+    return rs.create_request(data, actor=user["username"], source="client")
+
+
+@app.get("/api/client/requests/{rid}")
+def api_client_request(rid: int, user: dict = Depends(auth.require_roles("client"))) -> dict:
+    r = rs.get_request(rid)
+    if (r.get("unp") or "") != _require_client_unp(user):
+        raise HTTPException(403, "Это заявка другой организации")
+    return r
+
+
+@app.get("/api/client/deliveries")
+def api_client_deliveries(user: dict = Depends(auth.require_roles("client"))) -> list[dict]:
+    return db.rows2dicts(db.q(
+        """SELECT d.id, d.scheduled_date, d.status, d.postpone_count, d.comment,
+                  r.number, r.contractor, r.address
+           FROM deliveries d JOIN requests r ON r.id = d.request_id
+           WHERE r.unp=? ORDER BY d.scheduled_date DESC, d.id DESC LIMIT 100""",
+        (_require_client_unp(user),)))
+
+
 @app.get("/api/admin/engineers")
 def api_engineers(active_only: bool = False, user: dict = Depends(auth.current_user)) -> list[dict]:
     sql = "SELECT * FROM engineers" + (" WHERE active=1" if active_only else "") + " ORDER BY full_name"
@@ -489,21 +579,108 @@ def api_engineer_update(eid: int, inp: EngineerIn, user: dict = Depends(auth.req
     return db.row2dict(db.q1("SELECT * FROM engineers WHERE id=?", (eid,)))
 
 
+ROLES = ("admin", "operator", "engineer", "client")
+ROLE_LABELS = {"admin": "Администратор", "operator": "Диспетчер",
+               "engineer": "Инженер", "client": "Клиент"}
+
+
+def _validate_unp(unp: str) -> str:
+    u = validation.normalize_unp(unp or "")
+    err = validation.unp_error(u)
+    if err:
+        raise HTTPException(422, err)
+    return u
+
+
 @app.get("/api/admin/users")
 def api_users(user: dict = Depends(auth.require_roles("admin"))) -> list[dict]:
     return db.rows2dicts(db.q(
-        "SELECT id,username,role,full_name,engineer_id,active,created_at FROM users ORDER BY id"))
+        "SELECT id,username,role,full_name,engineer_id,company,unp,active,created_at FROM users ORDER BY id"))
 
 
 @app.post("/api/admin/users")
 def api_user_create(inp: UserIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
     if db.q1("SELECT 1 FROM users WHERE username=?", (inp.username.lower(),)):
         raise HTTPException(409, "Такой логин уже существует")
-    if inp.role not in ("admin", "operator", "engineer"):
-        raise HTTPException(422, "Роль: admin | operator | engineer")
-    uid = auth.create_user(inp.username.lower(), inp.password, inp.role, inp.full_name or inp.username, inp.engineer_id)
+    if inp.role not in ROLES:
+        raise HTTPException(422, "Роль: admin | operator (диспетчер) | engineer | client")
+    unp = None
+    if inp.role == "client":
+        if not (inp.company or "").strip():
+            raise HTTPException(422, "Для клиента укажите наименование организации")
+        unp = _validate_unp(inp.unp or "")
+        if db.q1("SELECT 1 FROM users WHERE role='client' AND unp=?", (unp,)):
+            raise HTTPException(409, f"Клиент с УНП {unp} уже заведён")
+    uid = auth.create_user(inp.username.lower(), inp.password, inp.role, inp.full_name or inp.username,
+                           inp.engineer_id, (inp.company or "").strip() or None, unp)
     db.audit(user["username"], "user.create", {"username": inp.username, "role": inp.role})
     return {"id": uid, "username": inp.username.lower(), "role": inp.role}
+
+
+@app.delete("/api/admin/users/{uid}")
+def api_user_delete(uid: int, user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    target = db.q1("SELECT * FROM users WHERE id=?", (uid,))
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    if target["id"] == user["id"]:
+        raise HTTPException(422, "Нельзя удалить свою учётную запись")
+    if target["role"] == "admin" and not db.q1("SELECT 1 FROM users WHERE role='admin' AND id!=? AND active=1", (uid,)):
+        raise HTTPException(422, "Это последний администратор — сначала создайте другого")
+    db.execute("DELETE FROM users WHERE id=?", (uid,))
+    db.audit(user["username"], "user.delete", {"username": target["username"]})
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{uid}/password")
+def api_user_password(uid: int, inp: PasswordIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    if len(inp.password or "") < 6:
+        raise HTTPException(422, "Пароль — минимум 6 символов")
+    if not db.q1("SELECT 1 FROM users WHERE id=?", (uid,)):
+        raise HTTPException(404, "Пользователь не найден")
+    auth.set_password(uid, inp.password)
+    db.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+    db.audit(user["username"], "user.password", {"user_id": uid})
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{uid}/active")
+def api_user_active(uid: int, inp: ActiveIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    target = db.q1("SELECT * FROM users WHERE id=?", (uid,))
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    active = 1 if inp.active else 0
+    if not active:
+        if target["id"] == user["id"]:
+            raise HTTPException(422, "Нельзя блокировать свою учётную запись")
+        if target["role"] == "admin" and not db.q1(
+                "SELECT 1 FROM users WHERE role='admin' AND id!=? AND active=1", (uid,)):
+            raise HTTPException(422, "Это последний администратор — нельзя блокировать")
+    db.execute("UPDATE users SET active=? WHERE id=?", (active, uid))
+    if not active:
+        db.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+    db.audit(user["username"], "user.active", {"user_id": uid, "active": active})
+    return {"ok": True, "active": active}
+
+
+@app.post("/api/admin/purge-demo")
+def api_purge_demo(user: dict = Depends(auth.require_roles("admin"))) -> dict:
+    """Удаление всех демо-записей: заявки, доставки, контрагенты, инженеры,
+    закрепления зон, отпуска, лента событий. Остаётся структура: зоны,
+    справочник работ, настройки, пользователи."""
+    counts = {}
+    for table in ("route_plans", "deliveries", "requests", "request_events", "contractors",
+                  "absences", "zone_assignments", "outbox"):
+        counts[table] = db.q1(f"SELECT COUNT(*) AS c FROM {table}")["c"]  # noqa: S608 (фиксированный список)
+        db.execute(f"DELETE FROM {table}")  # noqa: S608
+    # отвязываем пользователей от инженеров (ссылки на удаляемые записи)
+    counts["users_unlinked"] = db.q1("SELECT COUNT(*) AS c FROM users WHERE engineer_id IS NOT NULL")["c"]
+    db.execute("UPDATE users SET engineer_id=NULL")
+    counts["engineers"] = db.q1("SELECT COUNT(*) AS c FROM engineers")["c"]
+    db.execute("DELETE FROM engineers")
+    db.set_setting("demo_loaded", "1", actor=user["username"])
+    db.audit(user["username"], "demo.purge", counts)
+    return {"ok": True, "deleted": counts,
+            "message": "Демо-данные удалены. Добавьте инженеров и закрепите зоны — система готова к работе."}
 
 
 @app.get("/api/admin/assignments")
@@ -749,6 +926,16 @@ def admin_page() -> FileResponse:
 @app.get("/m")
 def mobile_page() -> FileResponse:
     return FileResponse(os.path.join(STATIC_DIR, "mobile", "index.html"))
+
+
+@app.get("/dispatcher")
+def dispatcher_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC_DIR, "dispatcher", "index.html"))
+
+
+@app.get("/client")
+def client_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC_DIR, "client", "index.html"))
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

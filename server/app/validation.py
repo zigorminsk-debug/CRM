@@ -152,10 +152,14 @@ def validate_request_form(data: dict, works_codes: set[str] | None = None) -> tu
     out["unp"] = unp
 
     acc = normalize_account(data.get("bank_account", ""))
-    err = account_error(acc)
-    if err:
-        errors.append(err)
-    out["bank_account"] = acc
+    # кабинет клиента: счёт необязателен — диспетчер дополнит реквизиты позже
+    if not acc and data.get("account_optional"):
+        out["bank_account"] = ""
+    else:
+        err = account_error(acc)
+        if err:
+            errors.append(err)
+        out["bank_account"] = acc
 
     phone = normalize_phone(data.get("phone", ""))
     err = phone_error(data.get("phone", ""))

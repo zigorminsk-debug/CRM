@@ -266,9 +266,6 @@ async function loadSettings() {
     duty_engineer_id: 'Дежурный инженер (ID) при отсутствии ответственного',
   };
   for (const s of list) box.append(el('label', {}, labels[s.key] || s.key, el('input', { 'data-key': s.key, value: s.value || '' })));
-  const users = await api('/api/admin/users');
-  const tb = $('#user-table tbody'); tb.innerHTML = '';
-  for (const u of users) tb.append(el('tr', {}, el('td', {}, u.id), el('td', {}, u.username), el('td', {}, u.role), el('td', {}, u.full_name || ''), el('td', {}, u.engineer_id || '—')));
 }
 $('#set-save').onclick = async () => {
   const values = {};
@@ -276,10 +273,83 @@ $('#set-save').onclick = async () => {
   await api('/api/admin/settings', { method: 'POST', body: { values } });
   toast('Настройки сохранены');
 };
-$('#u-add').onclick = async () => {
+
+/* ------------------------------------------------- очистка демо-данных */
+$('#purge-demo').onclick = async () => {
+  if (!confirm('Удалить ВСЕ демо-записи?\n\nУдаляются: заявки, доставки, контрагенты, инженеры, закрепления зон, отпуска, лента событий.\nОстаются: зоны, справочник работ, настройки, пользователи.')) return;
   try {
-    await api('/api/admin/users', { method: 'POST', body: { username: $('#u-user').value, password: $('#u-pass').value, role: $('#u-role').value, full_name: $('#u-user').value, engineer_id: $('#u-eng').value ? +$('#u-eng').value : null } });
-    toast('Пользователь создан'); loadSettings();
+    const r = await api('/api/admin/purge-demo', { method: 'POST' });
+    toast(r.message || 'Демо-данные удалены', 6000);
+    loadRequests();
+  } catch (e) { toast(e.message); }
+};
+
+/* --------------------------------------------- пользователи (4 раздела) */
+const ROLE_LABELS = { client: 'Клиент', engineer: 'Инженер', operator: 'Диспетчер', admin: 'Администратор' };
+const NU = { role: 'client', users: [] };
+
+async function loadUsers() {
+  NU.users = await api('/api/admin/users');
+  renderUsers();
+  const engs = await api('/api/admin/engineers');
+  const sel = $('#nu-eng'); const keep = sel.value;
+  sel.innerHTML = '<option value="">— не привязан к инженеру —</option>';
+  engs.filter((e) => e.active).forEach((e) => sel.append(el('option', { value: e.id }, e.full_name)));
+  sel.value = keep;
+}
+
+function renderUsers() {
+  const role = NU.role;
+  document.querySelectorAll('#role-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.role === role));
+  const isClient = role === 'client', isEngineer = role === 'engineer';
+  $('#nu-client-fields').hidden = !isClient;
+  $('#nu-engineer-fields').hidden = !isEngineer;
+  $('#nu-role-hint').textContent = 'Новый пользователь попадёт в раздел «' + ROLE_LABELS[role] + '»';
+  $('#nu-col-extra').textContent = isClient ? 'Организация / УНП' : isEngineer ? 'Привязка к инженеру' : 'Роль';
+  const tb = $('#nu-table tbody'); tb.innerHTML = '';
+  for (const u of NU.users.filter((x) => x.role === role)) {
+    const extra = isClient ? (u.company || '—') + ' · ' + (u.unp || 'нет УНП')
+      : isEngineer ? (u.engineer_id ? 'инженер #' + u.engineer_id : '— не привязан —')
+      : ROLE_LABELS[u.role];
+    tb.append(el('tr', {},
+      el('td', {}, u.id),
+      el('td', {}, el('b', {}, u.username)),
+      el('td', {}, u.full_name || '—'),
+      el('td', {}, extra),
+      el('td', {}, u.active ? el('span', { class: 'badge b-planned' }, 'активен') : el('span', { class: 'badge b-cancelled' }, 'заблокирован')),
+      el('td', {},
+        el('button', { onclick: async () => {
+          const p = prompt('Новый пароль для ' + u.username + ' (мин. 6 символов):');
+          if (p === null) return;
+          try { await api(`/api/admin/users/${u.id}/password`, { method: 'POST', body: { password: p } }); toast('Пароль обновлён'); } catch (e) { toast(e.message); }
+        } }, 'Пароль'),
+        ' ',
+        el('button', { onclick: async () => {
+          try { await api(`/api/admin/users/${u.id}/active`, { method: 'POST', body: { active: u.active ? 0 : 1 } }); loadUsers(); } catch (e) { toast(e.message); }
+        } }, u.active ? 'Блокировать' : 'Разблокировать'),
+        ' ',
+        el('button', { class: 'danger', onclick: async () => {
+          if (!confirm('Удалить пользователя ' + u.username + '?')) return;
+          try { await api(`/api/admin/users/${u.id}`, { method: 'DELETE' }); loadUsers(); toast('Удалено'); } catch (e) { toast(e.message); }
+        } }, 'Удалить'),
+      )));
+  }
+  if (!tb.children.length) tb.append(el('tr', {}, el('td', { colspan: 6 }, 'В этом разделе пока нет пользователей')));
+}
+
+document.querySelectorAll('#role-tabs button').forEach((b) => b.onclick = () => { NU.role = b.dataset.role; renderUsers(); });
+$('#nu-add').onclick = async () => {
+  const body = {
+    username: $('#nu-username').value.trim(), password: $('#nu-pass').value,
+    full_name: $('#nu-full').value.trim(), role: NU.role,
+  };
+  if (NU.role === 'client') { body.company = $('#nu-company').value.trim(); body.unp = $('#nu-unp').value.trim(); }
+  if (NU.role === 'engineer' && $('#nu-eng').value) body.engineer_id = +$('#nu-eng').value;
+  try {
+    await api('/api/admin/users', { method: 'POST', body });
+    toast('Пользователь создан');
+    ['#nu-username', '#nu-pass', '#nu-full', '#nu-company', '#nu-unp'].forEach((s) => { $(s).value = ''; });
+    loadUsers();
   } catch (e) { toast(e.message); }
 };
 
@@ -329,7 +399,7 @@ async function loadSelects() {
 function loadTab(name) {
   return ({
     requests: loadRequests, engineers: loadEngineers, zones: loadZones, absences: loadAbsences,
-    works: loadWorks, reports: loadReports, settings: loadSettings, audit: loadAudit,
+    works: loadWorks, users: loadUsers, reports: loadReports, settings: loadSettings, audit: loadAudit,
   }[name] || (() => {}))();
 }
 
