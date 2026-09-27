@@ -130,7 +130,7 @@ jobs:
       - name: Проверка запуска exe (health-запрос)
         shell: bash
         run: |
-          CRM_DB="$RUNNER_TEMP/crm-exe.sqlite3" PORT=8901 ./server/dist/CRM-Server.exe > "$RUNNER_TEMP/server-exe.log" 2>&1 &
+          CRM_DB="$RUNNER_TEMP/crm-exe.sqlite3" ./server/dist/CRM-Server.exe --no-gui --port 8901 > "$RUNNER_TEMP/server-exe.log" 2>&1 &
           SRV_PID=$!
           OK=""
           for i in $(seq 1 60); do

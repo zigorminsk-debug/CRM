@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Запуск сервера CRM.
 
-    python3 run.py                # порт 8000
-    PORT=9000 python3 run.py      # другой порт
-    CRM_DB=/var/lib/crm.sqlite3 python3 run.py
+    python3 run.py                    # окно управления (порт, старт/стоп, журнал)
+    python3 run.py --no-gui           # консольный режим, порт 8000
+    python3 run.py --no-gui --port 9000
+    python3 run.py 9000               # порт аргументом
 
 Тот же файл — точка входа для собранного CRM-Server.exe (PyInstaller):
-двойной щелчок поднимает сервер на http://0.0.0.0:8000, Python не нужен.
+двойной щелчок открывает окно управления (порт, «Запустить», «Открыть
+в браузере»); консольный режим — флаг --no-gui (для CI и служб).
 """
+import argparse
 import multiprocessing
 import os
 import socket
@@ -17,8 +20,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uvicorn  # noqa: E402
 
-# Журнал uvicorn без ANSI-цветов: классическая консоль Windows (conhost без VT)
-# показывает их мусором вида «←[32mINFO←[0m».
+from app import _runtime  # noqa: E402
+from app._runtime import local_ips  # noqa: E402
+
+# Журнал uvicorn для консольного режима — без ANSI-цветов: классическая консоль
+# Windows (conhost без VT) показывает их мусором вида «←[32mINFO←[0m».
 LOG_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -70,31 +76,6 @@ def _console_tweaks() -> None:
         pass
 
 
-def _local_ips() -> list[str]:
-    """IP-адреса этого компьютера в локальной сети (без внешних библиотек)."""
-    ips: list[str] = []
-    try:
-        # UDP-сокет с connect() ничего не отправляет — ОС просто выбирает маршрут
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            if ip and not ip.startswith("127."):
-                ips.append(ip)
-        finally:
-            s.close()
-    except OSError:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ip = info[4][0]
-            if ip and not ip.startswith("127.") and ip not in ips:
-                ips.append(ip)
-    except OSError:
-        pass
-    return ips
-
-
 def _print_addresses(host: str, port: int) -> None:
     """Понятная стартовая строка: куда заходить браузером (0.0.0.0 в браузере не открывается)."""
     if host != "0.0.0.0":
@@ -102,7 +83,7 @@ def _print_addresses(host: str, port: int) -> None:
         return
     print(f"CRM server запущен, порт {port}. Открывайте в браузере:")
     print(f"  на этом компьютере:   http://127.0.0.1:{port}")
-    ips = _local_ips()
+    ips = local_ips()
     if ips:
         for ip in ips:
             print(f"  с телефонов и других ПК: http://{ip}:{port}")
@@ -112,6 +93,7 @@ def _print_addresses(host: str, port: int) -> None:
     if getattr(sys, "frozen", False) and os.name == "nt":
         print("Если с другого устройства адрес не открывается — разрешите порт "
               f"{port} во входящих правилах брандмауэра Windows.")
+
 
 def _can_bind(host: str, port: int) -> str | None:
     """Свободен ли порт: возвращает текст ошибки или None, если можно запускаться."""
@@ -146,20 +128,8 @@ def _write_crash_log(text: str) -> str | None:
         return None
 
 
-if __name__ == "__main__":
-    multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
-    # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
-    # (cp1252/cp866) — кириллица в сообщениях уронит print с UnicodeEncodeError.
-    # Принудительно переводим потоки вывода на UTF-8.
-    for _stream in (sys.stdout, sys.stderr):
-        try:
-            _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-        except (AttributeError, ValueError, OSError):
-            pass
-    _console_tweaks()
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8000"))
-
+def run_console(host: str, port: int) -> None:
+    """Консольный режим: печать адресов и запуск uvicorn в текущем потоке."""
     # Порт проверяем ДО запуска: занятый порт — самая частая причина
     # «окно мигнуло и закрылось» (uvicorn завершается с SystemExit).
     busy = _can_bind(host, port)
@@ -210,3 +180,65 @@ if __name__ == "__main__":
     print("Сервер остановлен.")
     _pause_if_frozen()
 
+
+def run_gui(host: str, port: int) -> bool:
+    """Окно управления (tkinter). False — GUI недоступен, нужен консольный режим."""
+    try:
+        import launcher
+        return launcher.run(host, port)
+    except SystemExit:
+        raise
+    except ImportError as e:
+        # нет tkinter/дисплея — штатная ситуация, переходим в консоль
+        print(f"Окно управления недоступно ({e.__class__.__name__}: {e}) — консольный режим.")
+        return False
+    except BaseException:  # прочие сбои окна — показываем причину и уходим в консоль
+        import traceback
+        trace = traceback.format_exc()
+        print(f"Окно управления упало с ошибкой:\n{trace}")
+        _write_crash_log(trace)
+        return False
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="CRM-Server",
+        description="Сервер CRM: окно управления по умолчанию, консольный режим — --no-gui.",
+    )
+    parser.add_argument("port_positional", nargs="?", type=int, default=None,
+                        help="порт (краткая форма: CRM-Server.exe 8010)")
+    parser.add_argument("--port", type=int, default=None, help="порт сервера (по умолчанию 8000)")
+    parser.add_argument("--host", default=None, help="интерфейс (по умолчанию 0.0.0.0 — все)")
+    parser.add_argument("--no-gui", action="store_true",
+                        help="без окна управления: консольный режим (для CI и служб)")
+    try:
+        args, _unknown = parser.parse_known_args()
+    except SystemExit:
+        args, _unknown = parser.parse_known_args([])
+    return args
+
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
+    # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
+    # (cp1252/cp866) — кириллица в сообщениях уронит print с UnicodeEncodeError.
+    # Принудительно переводим потоки вывода на UTF-8.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+    _console_tweaks()
+
+    args = _parse_args()
+    host = args.host or os.environ.get("HOST", "0.0.0.0")
+    port = args.port or args.port_positional
+    if port is None:
+        env_port = os.environ.get("PORT", "").strip()
+        port = int(env_port) if env_port.isdigit() else 8000
+    port = int(port)
+
+    no_gui = args.no_gui or os.environ.get("CRM_NO_GUI", "").strip().lower() in ("1", "true", "yes")
+    if not no_gui and run_gui(host, port):
+        raise SystemExit(0)
+    run_console(host, port)

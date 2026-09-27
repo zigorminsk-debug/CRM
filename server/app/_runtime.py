@@ -8,6 +8,7 @@ VERSION) распаковываются во временный каталог `
 from __future__ import annotations
 
 import os
+import socket
 import sys
 
 
@@ -37,3 +38,28 @@ def writable_dir(name: str) -> str:
     path = os.path.join(exe_dir(), name)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def local_ips() -> list[str]:
+    """IP-адреса этого компьютера в локальной сети (без внешних библиотек)."""
+    ips: list[str] = []
+    try:
+        # UDP-сокет с connect() ничего не отправляет — ОС просто выбирает маршрут
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127.") and ip not in ips:
+                ips.append(ip)
+        finally:
+            s.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith("127.") and ip not in ips:
+                ips.append(ip)
+    except OSError:
+        pass
+    return ips

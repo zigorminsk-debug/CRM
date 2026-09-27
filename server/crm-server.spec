@@ -28,6 +28,8 @@ a = Analysis(
     hiddenimports=[
         "app",
         "app.main",
+        "launcher",
+        "tkinter",
         "uvicorn.logging",
         "uvicorn.loops",
         "uvicorn.loops.auto",
@@ -59,7 +61,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,   # окно управления (tkinter); консольный режим: CRM-Server.exe --no-gui
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
