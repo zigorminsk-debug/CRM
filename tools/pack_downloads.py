@@ -52,13 +52,22 @@ README_TXT = """CRM — заявки на заправку картриджей 
   CRM-Windows.exe        — клиент для Windows (портативный, установка не требуется)
   CRM-Engineer.apk       — приложение инженера для Android (ставится поверх предыдущей версии)
   CRM-Windows-Client.zip — тот же клиент с инструкцией
+  CRM-Server.exe         — сервер одним файлом: запустили — работает (Python не нужен)
   crm-server.zip         — сервер (Python), разворачивается на машине с публичным IP
   crm-sources.zip        — исходники Windows-клиента и Android-приложения
   update.json            — манифест автообновления (версия и контрольные суммы сборок)
 
 Установка (5 минут)
 -------------------
-1. Сервер:
+1. Сервер — любой из двух вариантов:
+
+   1а. Готовый exe (проще всего):
+     скопируйте CRM-Server.exe в папку с правами записи (например, C:\\CRM) и запустите.
+     Рядом создадутся база (data\\crm.sqlite3) и папка раздачи downloads;
+     Python устанавливать не нужно. Порт и путь к базе: переменные окружения
+     PORT и CRM_DB (по умолчанию 8000 и data\\crm.sqlite3 рядом с exe).
+
+   1б. Из исходников (Python):
      распакуйте crm-server.zip
      python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
      PORT=8000 .venv/bin/python run.py
@@ -129,6 +138,17 @@ def main() -> None:
         print(f"  apk:  уже на месте ({os.path.getsize(apk)//1024} КБ)")
     else:
         print("  apk:  не собран — выполните android/build_apk.sh (нужен Android SDK)")
+
+    # 1.2 сервер одним файлом (если собран PyInstaller'ом)
+    server_exe_src = os.path.join(ROOT, "server", "dist", "CRM-Server.exe")
+    server_exe = os.path.join(OUT, "CRM-Server.exe")
+    if os.path.exists(server_exe_src):
+        shutil.copy2(server_exe_src, server_exe)
+        print(f"  srv-exe: {server_exe} ({os.path.getsize(server_exe)//1024} КБ)")
+    elif os.path.exists(server_exe):
+        print(f"  srv-exe: уже на месте ({os.path.getsize(server_exe)//1024} КБ)")
+    else:
+        print("  srv-exe: не собран — выполните server/build_exe.sh")
 
     # 2. архив клиента Windows
     if os.path.exists(exe):

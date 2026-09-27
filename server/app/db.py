@@ -11,7 +11,15 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-DB_PATH = os.environ.get("CRM_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "crm.sqlite3"))
+from . import _runtime
+
+if os.environ.get("CRM_DB"):
+    DB_PATH = os.environ["CRM_DB"]
+elif _runtime.is_frozen():
+    # exe: база живёт рядом с CRM-Server.exe, чтобы переживать перезапуски
+    DB_PATH = os.path.join(_runtime.writable_dir("data"), "crm.sqlite3")
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "crm.sqlite3")
 
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None

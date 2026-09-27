@@ -6,13 +6,22 @@ CRM — заявки на заправку картриджей и ремонт 
   CRM-Windows.exe        — клиент для Windows (портативный, установка не требуется)
   CRM-Engineer.apk       — приложение инженера для Android (ставится поверх предыдущей версии)
   CRM-Windows-Client.zip — тот же клиент с инструкцией
+  CRM-Server.exe         — сервер одним файлом: запустили — работает (Python не нужен)
   crm-server.zip         — сервер (Python), разворачивается на машине с публичным IP
   crm-sources.zip        — исходники Windows-клиента и Android-приложения
   update.json            — манифест автообновления (версия и контрольные суммы сборок)
 
 Установка (5 минут)
 -------------------
-1. Сервер:
+1. Сервер — любой из двух вариантов:
+
+   1а. Готовый exe (проще всего):
+     скопируйте CRM-Server.exe в папку с правами записи (например, C:\CRM) и запустите.
+     Рядом создадутся база (data\crm.sqlite3) и папка раздачи downloads;
+     Python устанавливать не нужно. Порт и путь к базе: переменные окружения
+     PORT и CRM_DB (по умолчанию 8000 и data\crm.sqlite3 рядом с exe).
+
+   1б. Из исходников (Python):
      распакуйте crm-server.zip
      python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
      PORT=8000 .venv/bin/python run.py

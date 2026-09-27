@@ -22,10 +22,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import auth, db, geocode, requests_service as rs, routing, seed, updates, validation, zones
+from . import _runtime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-DOWNLOAD_DIR = os.environ.get("CRM_DOWNLOAD_DIR", os.path.join(os.path.dirname(BASE_DIR), "..", "downloads"))
+if _runtime.is_frozen():
+    # exe: ресурсы вшиты в бандл (sys._MEIPASS), static лежит в app/static — см. crm-server.spec
+    STATIC_DIR = os.path.join(_runtime.bundle_root(), "app", "static")
+else:
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+if os.environ.get("CRM_DOWNLOAD_DIR"):
+    DOWNLOAD_DIR = os.environ["CRM_DOWNLOAD_DIR"]
+elif _runtime.is_frozen():
+    # exe: папка раздачи рядом с CRM-Server.exe (туда же кладут CRM-Windows.exe и APK)
+    DOWNLOAD_DIR = _runtime.writable_dir("downloads")
+else:
+    DOWNLOAD_DIR = os.path.join(os.path.dirname(BASE_DIR), "..", "downloads")
 
 app = FastAPI(
     title="CRM: заявки на заправку картриджей и ремонт оргтехники",
@@ -655,6 +666,7 @@ DOWNLOAD_FILES = {
     "win": (("CRM-Windows.exe", "CRM-Windows-Setup.exe"), "Клиент для Windows (приём заявок)"),
     "apk": (("CRM-Engineer.apk",), "Приложение инженера для Android"),
     "server": (("crm-server.zip",), "Сервер (Python)"),
+    "server-exe": (("CRM-Server.exe",), "Сервер одним файлом (exe, Python не нужен)"),
     "src": (("crm-sources.zip",), "Исходники клиента Windows и Android"),
 }
 

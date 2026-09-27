@@ -33,3 +33,7 @@ android/captures/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Сборка сервера в exe (PyInstaller)
+server/build/
+server/dist/
