@@ -18,6 +18,14 @@ import uvicorn  # noqa: E402
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()          # корректный запуск собранного exe в Windows
+    # Windows: вывод exe часто перенаправлен в файл/консоль с однобайтовой кодировкой
+    # (cp1252/cp866) — кириллица в сообщениях уронит print с UnicodeEncodeError.
+    # Принудительно переводим потоки вывода на UTF-8.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     print(f"CRM server: http://{host}:{port}  (админка /admin, инженер /m, docs /docs)")
