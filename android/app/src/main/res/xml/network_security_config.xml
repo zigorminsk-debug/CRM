@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Сервер обычно поднимается на http://<IP>:8000 внутри защищённого периметра.
+     Разрешаем HTTP-доступ к произвольному адресу сервера, указанному при входе. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

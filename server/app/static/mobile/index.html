@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>CRM Инженер</title>
+<link rel="manifest" href="/static/mobile/manifest.webmanifest">
+<link rel="stylesheet" href="/static/mobile/mobile.css">
+</head>
+<body>
+<div id="login" class="login">
+  <h1>Приложение инженера</h1>
+  <p class="muted">Вход для получения заявок по вашим зонам</p>
+  <input id="lg-user" placeholder="Логин" autocomplete="username">
+  <input id="lg-pass" type="password" placeholder="Пароль" autocomplete="current-password">
+  <button class="primary big" id="lg-go">Войти</button>
+  <p class="muted small">Демо-доступ: engineer / engineer123</p>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div>
+      <div class="h1" id="eng-name">Инженер</div>
+      <div class="muted small" id="route-meta">—</div>
+    </div>
+    <div class="hdr-btns">
+      <button id="btn-day">День</button>
+      <button id="btn-refresh">⟳</button>
+      <button id="btn-out">Выход</button>
+    </div>
+  </header>
+
+  <div id="toasts"></div>
+
+  <section class="summary" id="summary"></section>
+
+  <section>
+    <h2>Маршрут на день</h2>
+    <div id="tasks"></div>
+  </section>
+
+  <section id="deliveries-sec" hidden>
+    <h2>Доставка заказчикам (забор в офис)</h2>
+    <div id="deliveries"></div>
+  </section>
+
+  <section>
+    <h2>Заявки вне маршрута (без адреса/переносы)</h2>
+    <div id="tasks-other"></div>
+  </section>
+
+  <footer>
+    <a id="all-route" class="btn" target="_blank" rel="noopener">Маршрут целиком в Яндекс.Картах</a>
+    <button id="btn-notify">Включить уведомления</button>
+  </footer>
+</div>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-box" id="sheet-box"></div>
+</div>
+<script src="/static/mobile/mobile.js"></script>
+</body>
+</html>
