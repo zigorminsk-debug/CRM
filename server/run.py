@@ -17,6 +17,58 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uvicorn  # noqa: E402
 
+# Журнал uvicorn без ANSI-цветов: классическая консоль Windows (conhost без VT)
+# показывает их мусором вида «←[32mINFO←[0m».
+LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "()": "uvicorn.logging.DefaultFormatter",
+            "fmt": "%(levelprefix)s %(message)s",
+            "use_colors": False,
+        },
+        "access": {
+            "()": "uvicorn.logging.AccessFormatter",
+            "fmt": '%(client_addr)s - "%(request_line)s" %(status_code)s',
+            "use_colors": False,
+        },
+    },
+    "handlers": {
+        "default": {"formatter": "default", "class": "logging.StreamHandler", "stream": "ext://sys.stderr"},
+        "access": {"formatter": "access", "class": "logging.StreamHandler", "stream": "ext://sys.stdout"},
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"level": "INFO"},
+        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+    },
+}
+
+
+def _console_tweaks() -> None:
+    """Windows: выключаем QuickEdit у консоли собранного exe.
+
+    QuickEdit — случайный клик мышью по окну включает выделение текста
+    (в заголовке появляется «Выбрать») и замораживает вывод процесса:
+    сервер висит и не отвечает, хотя запущен. Для окна сервера это вредно.
+    """
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            ENABLE_QUICK_EDIT_MODE = 0x0040
+            ENABLE_EXTENDED_FLAGS = 0x0080
+            new_mode = ((mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS) & 0xFFFFFFFF
+            kernel32.SetConsoleMode(handle, new_mode)
+    except Exception:
+        pass
+
 
 def _local_ips() -> list[str]:
     """IP-адреса этого компьютера в локальной сети (без внешних библиотек)."""
@@ -71,15 +123,18 @@ if __name__ == "__main__":
             _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
         except (AttributeError, ValueError, OSError):
             pass
+    _console_tweaks()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
     _print_addresses(host, port)
     try:
         if getattr(sys, "frozen", False):
             from app.main import app          # в exe модуль уже вшит — импортируем напрямую
-            uvicorn.run(app, host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info"))
+            uvicorn.run(app, host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info"),
+                        log_config=LOG_CONFIG)
         else:
-            uvicorn.run("app.main:app", host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info"))
+            uvicorn.run("app.main:app", host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info"),
+                        log_config=LOG_CONFIG)
     except PermissionError as e:
         # CRM-Server.exe лежит в папке без прав на запись (например, C:\Program Files):
         # рядом с собой он не может создать базу данных и папку раздачи.
