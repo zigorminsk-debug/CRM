@@ -634,17 +634,26 @@ def api_audit(limit: int = 200, user: dict = Depends(auth.require_roles("admin")
 # =====================================================================
 
 DOWNLOAD_FILES = {
-    "win": ("CRM-Windows-Setup.exe", "Клиент для Windows (приём заявок)"),
-    "apk": ("CRM-Engineer.apk", "Приложение инженера для Android"),
-    "server": ("crm-server.zip", "Сервер (Python)"),
-    "src": ("crm-sources.zip", "Исходники клиента Windows и Android"),
+    "win": (("CRM-Windows.exe", "CRM-Windows-Setup.exe"), "Клиент для Windows (приём заявок)"),
+    "apk": (("CRM-Engineer.apk",), "Приложение инженера для Android"),
+    "server": (("crm-server.zip",), "Сервер (Python)"),
+    "src": (("crm-sources.zip",), "Исходники клиента Windows и Android"),
 }
+
+
+def _download_file(candidates: tuple) -> str:
+    """Имя первого существующего файла из списка (клиент может называться по-разному)."""
+    for name in candidates:
+        if os.path.isfile(os.path.join(DOWNLOAD_DIR, name)):
+            return name
+    return candidates[0]
 
 
 @app.get("/api/downloads")
 def api_downloads() -> list[dict]:
     out = []
-    for key, (fname, title) in DOWNLOAD_FILES.items():
+    for key, (candidates, title) in DOWNLOAD_FILES.items():
+        fname = _download_file(candidates)
         path = os.path.join(DOWNLOAD_DIR, fname)
         out.append({
             "key": key, "file": fname, "title": title, "available": os.path.exists(path),

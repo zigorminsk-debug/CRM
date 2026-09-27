@@ -27,6 +27,8 @@ android/.idea/
 android/captures/
 *.apk
 *.aab
+# ...кроме готового APK инженера в каталоге раздачи
+!downloads/CRM-Engineer.apk
 
 # Разное
 .DS_Store

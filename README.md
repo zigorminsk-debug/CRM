@@ -131,7 +131,7 @@ server/                 сервер: FastAPI + SQLite
   app/data/minsk_streets.csv  локальный справочник адресов (офлайн-геокодирование)
   app/static/admin/     веб-админка диспетчера
   app/static/mobile/    мобильное приложение инженера (PWA)
-  tests/e2e_test.py     сквозной тест всей цепочки (38 проверок)
+  tests/e2e_test.py     сквозной тест всей цепочки (39 проверок)
 winclient/              Windows-клиент на C++/Win32 (WinHTTP), исходники + сборка exe
 android/                приложение инженера для Android (Kotlin)
 downloads/              готовые файлы для раздачи (exe, архивы исходников)

@@ -212,6 +212,14 @@ def main() -> int:
     check(took.get("id") == replacement["id"], "Зона на время отпуска передана замене",
           f"{zone_before['engineer']['full_name'] if zone_before and zone_before['engineer'] else '—'} → {took.get('full_name', '—')}")
 
+    # отмена отпуска: зона должна вернуться прежнему инженеру
+    st, del_res = call("DELETE", f"/api/admin/absences/{abs_res.get('absence_id')}", token=TOKEN["admin"])
+    st2, cov_back = call("GET", "/api/admin/coverage", token=TOKEN["admin"])
+    zone_back = next((c for c in cov_back["coverage"] if c["id"] == zone_id), None)
+    back_eng = (zone_back or {}).get("engineer") or {}
+    check(st == 200 and back_eng.get("id") == assigned_engineer, "Отмена отпуска возвращает зону прежнему инженеру",
+          f"{took.get('full_name', '—')} → {back_eng.get('full_name', '—')}, зон возвращено: {len(del_res.get('zones_returned') or [])}")
+
     st, feed = call("GET", "/api/engineer/feed?since=0&wait=0", token=TOKEN["engineer"])
     check(st == 200 and feed.get("events"), "Лента событий инженера (push)", f"событий: {len(feed.get('events', []))}")
 
