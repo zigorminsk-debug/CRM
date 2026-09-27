@@ -61,6 +61,10 @@
 
         <Button
             android:id="@+id/btnDelivered"
+            android:minWidth="0dp"
+            android:maxLines="1"
+            android:textAllCaps="false"
+            android:textSize="13sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -70,6 +74,10 @@
 
         <Button
             android:id="@+id/btnDeliveryPostpone"
+            android:minWidth="0dp"
+            android:maxLines="1"
+            android:textAllCaps="false"
+            android:textSize="13sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -77,6 +85,10 @@
 
         <Button
             android:id="@+id/btnDeliveryNav"
+            android:minWidth="0dp"
+            android:maxLines="1"
+            android:textAllCaps="false"
+            android:textSize="13sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"

@@ -85,6 +85,14 @@
                 android:text="Демо-доступ: engineer / engineer123 (создаётся сервером при первом запуске)"
                 android:textColor="@color/muted"
                 android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/versionLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/muted"
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- ===== маршрут ===== -->

@@ -37,6 +37,10 @@ class MainActivity : AppCompatActivity() {
         api = Api(this)
 
         findViewById<EditText>(R.id.serverEdit).setText(api.base)
+        try {
+            val pInfo = packageManager.getPackageInfo(packageName, 0)
+            findViewById<TextView>(R.id.versionLabel).text = "Версия приложения: " + pInfo.versionName
+        } catch (_: Exception) { }
         findViewById<Button>(R.id.loginButton).setOnClickListener { doLogin() }
         findViewById<Button>(R.id.checkButton).setOnClickListener { doCheck() }
         findViewById<Button>(R.id.logoutButton).setOnClickListener {
