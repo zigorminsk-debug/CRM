@@ -37,3 +37,6 @@ Thumbs.db
 # Сборка сервера в exe (PyInstaller)
 server/build/
 server/dist/
+
+# Журнал ошибок запуска CRM-Server.exe
+crm-server-error.txt

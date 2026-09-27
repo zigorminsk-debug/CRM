@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/home/user/CRM/server/run.py", line 187, in run_gui
-    import launcher
-  File "/home/user/CRM/server/launcher.py", line 18, in <module>
-    import tkinter as tk
-ModuleNotFoundError: No module named 'tkinter'
