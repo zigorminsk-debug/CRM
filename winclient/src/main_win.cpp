@@ -962,9 +962,16 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     initDpiScale(nullptr);
     std::wstring title = L"Cartridge Engineer — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
                          wide(CRM_CLIENT_VERSION);
+    int winW = sx(1210), winH = sx(760);
+    RECT wa{};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
+        int maxW = wa.right - wa.left - 16, maxH = wa.bottom - wa.top - 16;
+        if (winW > maxW) winW = maxW;   // узкий экран: список тянется в WM_SIZE, контент слева
+        if (winH > maxH) winH = maxH;
+    }
     HWND h = CreateWindowExW(0, L"CRMClientMain", title.c_str(),
                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                             CW_USEDEFAULT, CW_USEDEFAULT, sx(1210), sx(740),
+                             CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
                              nullptr, nullptr, inst, nullptr);
     if (!h) return 1;
 
