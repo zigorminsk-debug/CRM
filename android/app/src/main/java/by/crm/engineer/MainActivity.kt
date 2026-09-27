@@ -293,7 +293,13 @@ class MainActivity : AppCompatActivity() {
                 val comment = input.text.toString().ifBlank {
                     if (onsite) "Работы выполнены, заказчик принял" else "Картридж/оборудование забираем в офис"
                 }
-                apiCall({ api.done(task.id, result, comment) }) {
+                apiCall({ api.done(task.id, result, comment) },
+                    onError = { runOnUiThread { taskAdapter.notifyDataSetChanged() } }) {
+                    // сразу убираем заявку из маршрута, даже если обновление не пройдёт
+                    tasks = tasks.filter { it.id != task.id }.toMutableList()
+                    taskAdapter.submit(tasks)
+                    findViewById<TextView>(R.id.emptyHint).visibility =
+                        if (tasks.isEmpty()) View.VISIBLE else View.GONE
                     refresh()
                     if (onsite) {
                         toast("Отмечено: выполнено на месте")
@@ -328,18 +334,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun postponeDeliveryDialog(d: Delivery) {
-        val input = EditText(this).apply { hint = "Что не готово?" }
-        AlertDialog.Builder(this)
-            .setTitle("Перенести доставку на следующий рабочий день")
-            .setView(input)
-            .setPositiveButton("Перенести") { _, _ ->
-                apiCall({ api.deliveryPostpone(d.id, 1, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
-                    toast("Перенесено")
-                    refresh()
-                }
+        val cal = java.util.Calendar.getInstance()
+        try {
+            val p = d.scheduledDate.split("-").map { it.toInt() }
+            if (p.size == 3) cal.set(p[0], p[1] - 1, p[2])
+        } catch (_: Exception) { }
+        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
+            val picked = java.util.Calendar.getInstance().apply { set(y, m, dOfM) }
+            // сколько РАБОЧИХ дней между текущей датой доставки и выбранной
+            var days = 0
+            val cur = cal.clone() as java.util.Calendar
+            while (cur.before(picked)) {
+                cur.add(java.util.Calendar.DAY_OF_MONTH, 1)
+                val dow = cur.get(java.util.Calendar.DAY_OF_WEEK)
+                if (dow != java.util.Calendar.SATURDAY && dow != java.util.Calendar.SUNDAY) days++
             }
-            .setNegativeButton("Отмена", null)
-            .show()
+            if (days < 1) {
+                toast("Выберите дату позже текущей (${d.scheduledDate})")
+                return@DatePickerDialog
+            }
+            val input = EditText(this).apply { hint = "Что не готово?" }
+            AlertDialog.Builder(this)
+                .setTitle("Перенести на $y-%02d-%02d".format(m + 1, dOfM))
+                .setView(input)
+                .setPositiveButton("Перенести") { _, _ ->
+                    apiCall({ api.deliveryPostpone(d.id, days, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
+                        toast("Доставка перенесена")
+                        refresh()
+                    }
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
 
     // ------------------------------------------------------------------ детали
