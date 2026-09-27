@@ -1,0 +1,235 @@
+name: Сборка и релиз
+
+# Запуск при каждом изменении в ветке, при создании тега и вручную из вкладки Actions.
+# Релиз и манифест обновления публикуются только для основной ветки (main).
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:            # сборки и тесты на предложениях изменений (без публикации релиза)
+  workflow_dispatch:
+
+permissions:
+  contents: write        # создание релизов и загрузка файлов
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  # Номер сборки = номер запуска Actions → у каждого релиза свой уникальный номер версии
+  CRM_BUILD_NUMBER: ${{ github.run_number }}
+  # Пароли постоянных ключей подписи. Пока не заданы секреты репозитория, берутся
+  # значения из signing/README.md (ключи уже в репозитории). Смена ключа — только через секреты.
+  WINDOWS_SIGN_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD || 'crm-windows-key-2026' }}
+  ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'crm-android-key-2026' }}
+
+jobs:
+  # ------------------------------------------------------------------ проверки
+  test:
+    name: Тесты сервера и клиента
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости сервера
+        run: pip install -r server/requirements.txt
+      - name: Запуск сервера
+        run: |
+          cd server
+          CRM_DB="$RUNNER_TEMP/crm.sqlite3" PORT=8000 python run.py > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -fs http://127.0.0.1:8000/api/health >/dev/null; then echo "Сервер поднялся"; break; fi
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8000/api/health
+      - name: Сквозной тест (форма → зона → инженер → маршрут → доставка)
+        run: python server/tests/e2e_test.py http://127.0.0.1:8000
+      - name: Автотест логики Windows-клиента
+        run: |
+          cd winclient
+          g++ -std=c++17 -O1 -Isrc src/main_test.cpp src/api.cpp src/validate.cpp \
+              src/hash.cpp src/http_posix.cpp -o "$RUNNER_TEMP/crm_client_test"
+          "$RUNNER_TEMP/crm_client_test" http://127.0.0.1:8000
+      - name: Журнал сервера (при ошибке)
+        if: failure()
+        run: tail -100 "$RUNNER_TEMP/server.log" || true
+
+  # ------------------------------------------------------- клиент Windows (exe)
+  windows:
+    name: Клиент Windows (exe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Кросс-компилятор zig
+        run: pip install ziglang
+      - name: osslsigncode (подпись exe)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osslsigncode
+      - name: Ключ подписи Windows
+        id: key
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+        run: |
+          mkdir -p signing
+          if [ -n "$WINDOWS_PFX_BASE64" ]; then
+            echo "$WINDOWS_PFX_BASE64" | base64 -d > signing/windows-signing.pfx
+            echo "Ключ взят из секрета WINDOWS_PFX_BASE64"
+          elif [ -f signing/windows-signing.pfx ]; then
+            echo "Ключ из репозитория (signing/windows-signing.pfx)"
+          else
+            echo "::warning::Ключ подписи Windows не найден — exe будет без подписи (см. signing/README.md)"
+          fi
+      - name: Сборка exe (версия, ресурсы, подпись)
+        env:
+          SIGN_PFX: ${{ github.workspace }}/signing/windows-signing.pfx
+          SIGN_PFX_PASS: ${{ env.WINDOWS_SIGN_PASSWORD }}
+        run: |
+          set -o pipefail
+          cd winclient
+          ./build_windows.sh zig 2>&1 | tee "$RUNNER_TEMP/windows-build.log"
+      - name: Проверка подписи exe
+        run: |
+          set -o pipefail
+          osslsigncode verify -CAfile signing/windows-cert.pem -in winclient/dist/CRM-Windows.exe \
+            2>&1 | tee "$RUNNER_TEMP/windows-sign.log"
+      - name: Сохранить exe в артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-windows
+          path: winclient/dist/CRM-Windows.exe
+          if-no-files-found: error
+      - name: Журнал сборки exe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-logs-windows
+          path: |
+            ${{ runner.temp }}/windows-build.log
+            ${{ runner.temp }}/windows-sign.log
+          if-no-files-found: ignore
+
+  # ------------------------------------------------- приложение инженера (APK)
+  android:
+    name: Приложение инженера (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Android SDK (на runner уже установлен — доставляем нужные пакеты)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" "platform-tools" >/dev/null
+      - name: Gradle 8.7
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
+      - name: Ключ подписи Android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p signing
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > signing/android-release.p12
+            echo "Ключ взят из секрета ANDROID_KEYSTORE_BASE64"
+          fi
+      - name: Сборка APK (версия, подпись постоянным ключом)
+        env:
+          GRADLE_CMD: gradle
+          CRM_KEYSTORE_FILE: ${{ github.workspace }}/signing/android-release.p12
+          CRM_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
+          CRM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'crm-engineer' }}
+          CRM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || env.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -o pipefail
+          cd android
+          ./build_apk.sh 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+      - name: Проверка подписи APK
+        run: |
+          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" verify --print-certs android/dist/CRM-Engineer.apk
+      - name: Сохранить APK в артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-android
+          path: android/dist/CRM-Engineer.apk
+          if-no-files-found: ignore
+      - name: Журнал сборки APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-logs-android
+          path: ${{ runner.temp }}/android-build.log
+          if-no-files-found: ignore
+
+  # --------------------------------------------- релиз с номером и манифестом
+  release:
+    name: Релиз и манифест автообновления
+    needs: [test, windows, android]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Скачать собранные файлы
+        uses: actions/download-artifact@v4
+        with:
+          pattern: crm-*
+          merge-multiple: true
+          path: artifacts
+      - name: Разложить сборки и подготовить пакеты раздачи
+        run: |
+          mkdir -p winclient/dist android/dist
+          cp artifacts/CRM-Windows.exe winclient/dist/
+          cp artifacts/CRM-Engineer.apk android/dist/
+          python3 tools/pack_downloads.py
+      - name: Манифест автообновления (update.json)
+        id: version
+        run: |
+          VERSION="$(python3 tools/version.py)"
+          BUILD="$(python3 tools/version.py --code)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          NOTES="$(git log -1 --pretty=%s)"
+          python3 tools/make_update_json.py \
+            --version "$VERSION" --build "$BUILD" --repo "$GITHUB_REPOSITORY" \
+            --tag "v$VERSION" --dir downloads --notes "$NOTES"
+      - name: Опубликовать релиз
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git log -1 --pretty=%B > "$RUNNER_TEMP/notes.txt"
+          {
+            echo "Сборка $VERSION"
+            echo
+            echo "**Обновление ставится поверх установленной версии** (подпись постоянным ключом):"
+            echo 'клиент Windows и приложение инженера проверяют `/api/updates` и предлагают установить новую сборку.'
+            echo
+            cat "$RUNNER_TEMP/notes.txt"
+          } > "$RUNNER_TEMP/release.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" downloads/* --clobber
+          else
+            gh release create "$TAG" --title "CRM $VERSION" --notes-file "$RUNNER_TEMP/release.md" --target "$GITHUB_SHA" downloads/*
+          fi
+          echo "Релиз: $(gh release view "$TAG" --json url -q .url)"

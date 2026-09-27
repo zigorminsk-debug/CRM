@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM — админка диспетчера</title>
+<link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+<header>
+  <div class="brand">CRM <span>заявки · зоны · маршруты</span></div>
+  <nav id="tabs">
+    <button data-tab="requests" class="active">Заявки</button>
+    <button data-tab="engineers">Инженеры</button>
+    <button data-tab="zones">Зоны</button>
+    <button data-tab="absences">Отпуска и замены</button>
+    <button data-tab="works">Справочник работ</button>
+    <button data-tab="reports">Отчёты</button>
+    <button data-tab="settings">Настройки</button>
+    <button data-tab="audit">Журнал</button>
+  </nav>
+  <div class="user"><span id="whoami">—</span><button id="logout">Выйти</button></div>
+</header>
+
+<section id="login" class="login-card">
+  <h1>Вход в админку</h1>
+  <input id="lg-user" placeholder="Логин" value="admin" autocomplete="username">
+  <input id="lg-pass" type="password" placeholder="Пароль" autocomplete="current-password">
+  <button id="lg-go">Войти</button>
+  <p class="hint">По умолчанию: admin / admin123 (или пароль из переменной CRM_ADMIN_PASSWORD).</p>
+</section>
+
+<main id="app" hidden>
+  <section id="tab-requests" class="tab active">
+    <div class="toolbar">
+      <input id="f-q" placeholder="Поиск: адрес, №, пояснение">
+      <input id="f-contractor" placeholder="Контрагент">
+      <input id="f-unp" placeholder="УНП">
+      <input id="f-acc" placeholder="р/с">
+      <input id="f-phone" placeholder="Телефон">
+      <select id="f-status"><option value="">Все статусы</option></select>
+      <select id="f-engineer"><option value="">Все инженеры</option></select>
+      <input id="f-date-from" type="date"><input id="f-date-to" type="date">
+      <button id="f-go" class="primary">Найти</button>
+      <button id="f-reset">Сброс</button>
+      <a id="f-export" class="btn" href="#" download>CSV</a>
+      <label class="live"><input type="checkbox" id="live" checked> живое обновление</label>
+    </div>
+    <div id="req-summary" class="summary"></div>
+    <table id="req-table">
+      <thead><tr>
+        <th>№</th><th>Создана</th><th>Контрагент</th><th>УНП</th><th>Р/с</th><th>Работа</th>
+        <th>Срочность</th><th>Статус</th><th>Район</th><th>Инженер</th><th>Адрес</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="req-page" class="pager"></div>
+  </section>
+
+  <section id="tab-engineers" class="tab">
+    <h2>Инженеры</h2>
+    <div class="toolbar">
+      <input id="e-name" placeholder="ФИО"><input id="e-phone" placeholder="+375 29 000-00-00">
+      <input id="e-lat" placeholder="широта базы" size="10"><input id="e-lon" placeholder="долгота базы" size="10">
+      <button id="e-add" class="primary">Добавить инженера</button>
+    </div>
+    <table id="eng-table"><thead><tr>
+      <th>ID</th><th>ФИО</th><th>Телефон</th><th>Зон</th><th>Открытых заявок</th><th>Отпуск/отсутствие</th><th>Активен</th><th></th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="tab-zones" class="tab">
+    <h2>Зоны и ответственные</h2>
+    <div class="toolbar">
+      <input id="z-day" type="date"><button id="z-load">Показать на дату</button>
+      <button id="z-fix" class="primary">Перераспределить заявки отсутствующих</button>
+    </div>
+    <div class="two-col">
+      <div>
+        <h3>Покрытие зон на дату</h3>
+        <table id="cov-table"><thead><tr><th>Зона</th><th>Тип</th><th>Закреплён</th><th>Фактически отвечает</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div>
+        <h3>Переназначить зону</h3>
+        <div class="form-stack">
+          <label>Зона <select id="as-zone"></select></label>
+          <label>Инженер <select id="as-eng"></select></label>
+          <label>С даты <input id="as-from" type="date"></label>
+          <label>По дату (пусто = бессрочно) <input id="as-to" type="date"></label>
+          <label>Причина <input id="as-reason" value="Перераспределение зоны"></label>
+          <button id="as-go" class="primary">Сохранить закрепление</button>
+        </div>
+        <h3>Загрузка инженеров на сегодня</h3>
+        <table id="load-table"><thead><tr><th>Инженер</th><th>Задач</th><th>Время, мин</th><th>Пробег, км</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-absences" class="tab">
+    <h2>Отпуска, больничные и замены</h2>
+    <div class="toolbar">
+      <select id="ab-eng"></select>
+      <select id="ab-kind">
+        <option value="vacation">Отпуск</option><option value="sick">Больничный</option>
+        <option value="dayoff">Отгул/выходной</option><option value="other">Прочее</option>
+      </select>
+      <input id="ab-from" type="date"><input id="ab-to" type="date">
+      <select id="ab-repl"><option value="">— замена не указана —</option></select>
+      <input id="ab-comment" placeholder="Комментарий">
+      <button id="ab-add" class="primary">Оформить отсутствие</button>
+    </div>
+    <p class="hint">На период отсутствия зоны основного инженера автоматически перераспределяются на замену,
+      а незавершённые заявки перебрасываются на фактического ответственного.</p>
+    <table id="ab-table"><thead><tr><th>Инженер</th><th>Вид</th><th>С</th><th>По</th><th>Замена</th><th>Комментарий</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="tab-works" class="tab">
+    <h2>Справочник работ (выпадающий список в форме заявки)</h2>
+    <div class="toolbar">
+      <input id="w-code" placeholder="Код"><input id="w-name" placeholder="Наименование">
+      <input id="w-cat" placeholder="Категория">
+      <select id="w-site"><option value="onsite">на месте</option><option value="office">в офисе</option><option value="remote">удалённо</option></select>
+      <input id="w-min" placeholder="мин" size="5" type="number" value="60">
+      <button id="w-add" class="primary">Добавить/обновить</button>
+    </div>
+    <table id="work-table"><thead><tr><th>Код</th><th>Наименование</th><th>Категория</th><th>Где</th><th>Мин</th><th>Активна</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="tab-reports" class="tab">
+    <h2>Отчёты</h2>
+    <div class="toolbar"><input id="r-from" type="date"><input id="r-to" type="date"><button id="r-go" class="primary">Построить</button></div>
+    <div id="report"></div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <h2>Настройки сервера</h2>
+    <div id="settings-form" class="form-stack"></div>
+    <button id="set-save" class="primary">Сохранить настройки</button>
+    <h3>Пользователи</h3>
+    <div class="toolbar">
+      <input id="u-user" placeholder="Логин"><input id="u-pass" placeholder="Пароль">
+      <select id="u-role"><option value="operator">Оператор</option><option value="admin">Администратор</option><option value="engineer">Инженер (мобильное приложение)</option></select>
+      <select id="u-eng"><option value="">— не привязан —</option></select>
+      <button id="u-add" class="primary">Создать пользователя</button>
+    </div>
+    <table id="user-table"><thead><tr><th>ID</th><th>Логин</th><th>Роль</th><th>ФИО</th><th>Инженер</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="tab-audit" class="tab">
+    <h2>Журнал действий</h2>
+    <table id="audit-table"><thead><tr><th>Время</th><th>Кто</th><th>Действие</th><th>Данные</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden><div class="modal-box" id="modal-box"></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="/static/admin/admin.js"></script>
+</body>
+</html>

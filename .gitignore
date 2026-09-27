@@ -1,32 +1,35 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-srv/
+venv/
+env/
+*.egg-info/
 
-# Test binary, built with `go test -c`
-*.test
+# База и данные сервера (создаются при первом запуске)
+server/data/*.sqlite3
+server/data/*.sqlite3-wal
+server/data/*.sqlite3-shm
+server/data/*.log
 
-# Code coverage profiles and other test artifacts
-*.out
-coverage.*
-*.coverprofile
-profile.cov
+# Сборка клиента
+winclient/dist/
+*.o
+*.obj
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Android
+android/.gradle/
+android/local.properties
+android/keystore.properties      # пароли ключа подписи (не хранить в репозитории)
+android/build/
+android/app/build/
+android/.idea/
+android/captures/
+*.apk
+*.aab
 
-# Go workspace file
-go.work
-go.work.sum
-
-# env file
-.env
-
-# Editor/IDE
-# .idea/
-# .vscode/
+# Разное
+.DS_Store
+Thumbs.db
+*.swp

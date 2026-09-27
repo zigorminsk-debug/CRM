@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Куда приложение сохраняет скачанный APK обновления (отдаётся системному установщику). -->
+<paths>
+    <external-files-path name="updates" path="." />
+    <files-path name="updates_internal" path="." />
+</paths>

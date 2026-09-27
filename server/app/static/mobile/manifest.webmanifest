@@ -1,0 +1,12 @@
+{
+  "name": "CRM Инженер — заявки и маршрут",
+  "short_name": "CRM Инженер",
+  "start_url": "/m",
+  "display": "standalone",
+  "background_color": "#0b1324",
+  "theme_color": "#0f172a",
+  "lang": "ru",
+  "icons": [
+    {"src": "/static/mobile/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

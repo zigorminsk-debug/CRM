@@ -1,0 +1,77 @@
+// app/build.gradle — приложение инженера: версия из tools/version.py, подпись постоянным ключом.
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+// ---------------------------------------------------------------------------
+// Версия и подпись.
+//  * versionCode/versionName приходят из скрипта tools/version.py:
+//      ./gradlew assembleRelease -PversionCode=57 -PversionName=1.0.57
+//    (в CI их подставляет .github/workflows/release.yml, локально — значение по умолчанию);
+//  * ключ подписи берётся из keystore.properties (или переменных окружения CI):
+//      storeFile=/полный/путь/android-release.p12
+//      storePassword=crm-android-key-2026
+//      keyAlias=crm-engineer
+//      keyPassword=crm-android-key-2026
+//    Один и тот же ключ для всех релизов → обновление ставится поверх установленной версии.
+// ---------------------------------------------------------------------------
+def keystoreProps = new Properties()
+def keystoreFile = file(System.getenv('CRM_KEYSTORE_PROPERTIES') ?: 'keystore.properties')
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
+['CRM_KEYSTORE_FILE', 'CRM_KEYSTORE_PASSWORD', 'CRM_KEY_ALIAS', 'CRM_KEY_PASSWORD'].eachWithIndex { name, i ->
+    if (System.getenv(name)) {
+        keystoreProps.setProperty(['storeFile', 'storePassword', 'keyAlias', 'keyPassword'][i], System.getenv(name))
+    }
+}
+
+def vCode = (project.findProperty('versionCode') ?: System.getenv('CRM_BUILD_NUMBER') ?: '1').toString().toInteger()
+def vName = (project.findProperty('versionName') ?: System.getenv('CRM_VERSION') ?: '1.0.0').toString()
+
+android {
+    namespace 'by.crm.engineer'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "by.crm.engineer"
+        minSdk 24
+        targetSdk 34
+        versionCode vCode
+        versionName vName
+        // Версия строкой в интерфейсе (доступна без BuildConfig)
+        resValue "string", "app_version", vName
+    }
+    signingConfigs {
+        release {
+            if (keystoreProps.getProperty('storeFile')) {
+                storeFile file(keystoreProps.getProperty('storeFile'))
+                storePassword keystoreProps.getProperty('storePassword')
+                keyAlias keystoreProps.getProperty('keyAlias')
+                keyPassword keystoreProps.getProperty('keyPassword')
+                // v1+v2: APK ставится на Android 7+ и обновляется поверх установленного
+                enableV1Signing true
+                enableV2Signing true
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Один и тот же ключ во всех релизах → установка «поверх» без удаления приложения
+            signingConfig keystoreProps.getProperty('storeFile') ? signingConfigs.release : null
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    // JSON — встроенный org.json, HTTP — HttpURLConnection (без лишних зависимостей)
+}
