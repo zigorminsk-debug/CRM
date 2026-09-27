@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">CRM Инженер</string>
+    <string name="login_button">Войти и получить заявки</string>
 </resources>

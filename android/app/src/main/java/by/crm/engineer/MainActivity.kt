@@ -110,20 +110,32 @@ class MainActivity : AppCompatActivity() {
         val server = findViewById<EditText>(R.id.serverEdit).text.toString()
         val user = findViewById<EditText>(R.id.userEdit).text.toString()
         val pass = findViewById<EditText>(R.id.passEdit).text.toString()
+        if (server.isBlank()) {
+            toast("Укажите адрес сервера (например, http://192.168.1.35:8000)")
+            return
+        }
         if (user.isBlank() || pass.isBlank()) {
             toast("Укажите логин и пароль")
             return
         }
+        val btn = findViewById<Button>(R.id.loginButton)
         api.saveServer(server)
-        findViewById<Button>(R.id.loginButton).isEnabled = false
+        btn.isEnabled = false
+        btn.text = "Вхожу…"
         apiCall({
             val res = api.login(user, pass)
             runOnUiThread {
-                findViewById<Button>(R.id.loginButton).isEnabled = true
+                btn.isEnabled = true
+                btn.text = getString(R.string.login_button)
                 toast("Вход выполнен: " + res.optString("full_name"))
                 showLogin(false)
             }
             refresh()
+        }, onError = {
+            // Кнопка обязана оживать при ЛЮБОЙ ошибке (адрес, сеть, пароль),
+            // иначе после первой же неудачи вход блокируется навсегда.
+            btn.isEnabled = true
+            btn.text = getString(R.string.login_button)
         })
     }
 
@@ -290,12 +302,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --------------------------------------------------------- многопоточность
-    private fun apiCall(work: () -> Unit, silent: Boolean = false, onOk: (() -> Unit)? = null) {
+    private fun apiCall(work: () -> Unit, silent: Boolean = false, onOk: (() -> Unit)? = null,
+                        onError: (() -> Unit)? = null) {
         Thread {
             try {
                 work()
                 if (onOk != null) runOnUiThread(onOk)
             } catch (e: Exception) {
+                if (onError != null) runOnUiThread(onError)
                 if (!silent) runOnUiThread { toast("Ошибка: ${e.message}") }
             }
         }.start()
