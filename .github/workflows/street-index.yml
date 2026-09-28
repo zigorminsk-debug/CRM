@@ -24,17 +24,23 @@ jobs:
           python-version: "3.11"
       - name: Сбор данных из OpenStreetMap (Overpass)
         run: |
-          python3 tools/build_street_index.py 2>&1 | tee harvest.log
-          test ${PIPESTATUS[0]} -eq 0
+          set +e
+          python3 tools/build_street_index.py > harvest.log 2>&1
+          echo $? > harvest.exit
+          cat harvest.log
+          test "$(cat harvest.exit)" = "0"
         env:
           PYTHONUNBUFFERED: "1"
-      - name: Лог сборки (всегда выгружаем)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: harvest-log
-          path: harvest.log
-          if-no-files-found: ignore
+      - name: Диагностика: лог в репозиторий при сбое
+        if: failure()
+        run: |
+          git config user.name "crm-index-bot"
+          git config user.email "actions@users.noreply.github.com"
+          mkdir -p .ci
+          { cat harvest.log; echo "exit=$(cat harvest.exit)"; } > .ci/last-harvest.log
+          git add .ci/last-harvest.log
+          git commit -m "street-index: harvest failed - log attached"
+          git push
       - name: Коммит обновлённого справочника
         run: |
           git config user.name "crm-index-bot"

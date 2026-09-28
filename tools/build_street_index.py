@@ -65,8 +65,15 @@ def overpass(query: str) -> dict:
                 req = urllib.request.Request(ep, data=data,
                                              headers={"User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded"})
                 with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=900) as r:
-                    print(f"  overpass: {ep} ok ({r.headers.get('Content-Length', '?')} байт)", flush=True)
-                    return json.loads(r.read().decode("utf-8"))
+                    body = r.read().decode("utf-8", "replace")
+                    print(f"  overpass: {ep} ok ({len(body)} байт)", flush=True)
+                    try:
+                        return json.loads(body)
+                    except json.JSONDecodeError:
+                        print(f"  overpass: ответ не JSON: {body[:200]!r}", flush=True)
+                        raise
+            except SystemExit:
+                raise
             except Exception as e:  # noqa: BLE001
                 print(f"  overpass: {ep} ошибка: {e}", flush=True)
                 last = e
@@ -74,15 +81,27 @@ def overpass(query: str) -> dict:
     raise SystemExit(f"Overpass недоступен: {last}")
 
 
-def rel_area_id(name_ru: str) -> int:
-    q = ('[out:json][timeout:60];'
-         f'rel["boundary"="administrative"]["admin_level"="6"]["name:ru"="{name_ru}"];out ids;')
+def rel_area_id(name_ru: str, names_be: tuple = ()) -> int:
+    """Ищет границу по нескольким именам и уровням; печатает всех кандидатов."""
+    variants = tuple({name_ru, *names_be})
+    levels = ("4", "5", "6", "7", "8")
+    conds = "".join(f'rel["boundary"="administrative"]["admin_level"="{l}"]["name:ru"~"^{v}$"];'
+                    for v in variants for l in levels)
+    conds += "".join(f'rel["boundary"="administrative"]["admin_level"="{l}"]["name"~"^{v}$"];'
+                     for v in variants for l in levels)
+    q = '[out:json][timeout:120];(' + conds + ');out ids tags;'
     els = overpass(q).get("elements", [])
-    if not els:
-        raise SystemExit(f"Не найдена граница: {name_ru}")
-    rid = els[0]["id"]
-    print(f"  область «{name_ru}»: relation {rid}", flush=True)
-    return 3600000000 + rid
+    for e in els:
+        t = e.get("tags", {})
+        print(f"  кандидат: rel {e['id']} | name:ru={t.get('name:ru')!r} | name={t.get('name')!r} | "
+              f"admin_level={t.get('admin_level')}", flush=True)
+    want = {v.lower() for v in variants}
+    for e in els:
+        t = e.get("tags", {})
+        if {t.get("name:ru", "").lower(), t.get("name", "").lower()} & want:
+            print(f"  область «{name_ru}»: relation {e['id']}", flush=True)
+            return 3600000000 + e["id"]
+    raise SystemExit(f"Не найдена граница: {name_ru} (кандидаты выше)")
 
 
 def q_center(area: int, selector: str, timeout: int = 900) -> list:
@@ -159,8 +178,8 @@ def inside(pt: tuple, ring: list) -> bool:
 def main() -> None:
     t0 = time.time()
     print("1/6 Области OSM...", flush=True)
-    city = rel_area_id("Минск")
-    region = rel_area_id("Минский район")
+    city = rel_area_id("Минск", ("Мінск", "минск"))
+    region = rel_area_id("Минский район", ("Мінскі раён",))
 
     print("2/6 Районы города (границы)...", flush=True)
     els = q_raions(city)
