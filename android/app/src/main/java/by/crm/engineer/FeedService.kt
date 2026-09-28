@@ -8,6 +8,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.json.JSONObject
 
 /**
@@ -45,28 +48,44 @@ class FeedService : Service() {
                 val res: JSONObject = api.feed(since, 25)
                 val events = res.optJSONArray("events")
                 if (events != null && events.length() > 0) {
-                    var sawNew = false
+                    // «Сегодня» по локальной дате устройства
+                    val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    var sawToday = false
                     for (i in 0 until events.length()) {
                         val ev = events.getJSONObject(i)
                         val kind = ev.optString("kind")
                         val payload = ev.optJSONObject("payload") ?: JSONObject()
-                        val title = when (kind) {
+                        val evDate = payload.optString("date")
+                        val baseTitle = when (kind) {
                             "task.new" -> "Новая заявка"
                             "task.postponed" -> "Заявка перенесена"
                             "task.pickup" -> "Оформлен забор в офис"
                             "zone.replacement" -> "Вам передана зона (замена)"
                             else -> null
                         } ?: continue
+                        // Монеты и фонарик — только для заявки на СЕГОДНЯ (или без даты —
+                        // на случай старого сервера). На другой день — тихое уведомление.
+                        val isToday = when (kind) {
+                            "task.new" -> evDate.isBlank() || evDate == today
+                            else -> false
+                        }
+                        val title = if (kind == "task.new" && !isToday && evDate.isNotBlank()) {
+                            val pretty = try {
+                                val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(evDate)
+                                SimpleDateFormat("dd.MM", Locale.US).format(d!!)
+                            } catch (e: Exception) { evDate }
+                            "$baseTitle на $pretty"
+                        } else baseTitle
                         val body = listOf(payload.optString("number"), payload.optString("address"),
                                           payload.optString("priority")).filter { it.isNotBlank() }.joinToString(" · ")
-                        // Новая заявка — канал со звоном монет; остальное — обычный канал
-                        notify(title, body, if (kind == "task.new") CHANNEL_NEW else CHANNEL_ID)
-                        if (kind == "task.new") sawNew = true
+                        // Сегодняшняя — канал со звоном монет; остальное — обычный канал
+                        notify(title, body, if (isToday) CHANNEL_NEW else CHANNEL_ID)
+                        if (isToday) sawToday = true
                         since = ev.optLong("id", since)
                     }
                     prefs.edit().putLong("feed_id", since).apply()
                     // световое уведомление: мигание фонариком (один раз на партию заявок)
-                    if (sawNew) NewRequestAlert.flash(this@FeedService)
+                    if (sawToday) NewRequestAlert.flash(this@FeedService)
                 }
             } catch (e: Exception) {
                 sleep(15_000)

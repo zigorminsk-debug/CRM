@@ -122,7 +122,7 @@ def create_request(data: dict, actor: str = "client", source: str = "win") -> di
            {"zone_id": zone_id, "precision": precision, "engineer_id": engineer["id"] if engineer else None})
     if engineer:
         db.push_event(engineer["id"], "task.new", rid, {"number": number, "address": norm["address"],
-                                                         "priority": norm["priority"]})
+                                                         "priority": norm["priority"], "date": planned})
 
     result = get_request(rid)
     result["_assignment_message"] = (
@@ -322,7 +322,8 @@ def reassign(rid: int, engineer_id: int, actor: str, reason: str = "", day: str 
     _event(rid, actor, r["status"], "assigned" if r["status"] == "new" else r["status"],
            f"Переназначено на {eng['full_name']}. {reason}".strip())
     db.push_event(engineer_id, "task.new", rid, {"number": r["number"], "address": r["address"],
-                                                 "priority": r["priority"], "reassigned": True})
+                                                 "priority": r["priority"], "reassigned": True,
+                                                 "date": r["planned_date"]})
     db.audit(actor, "request.reassign", {"id": rid, "from": r["engineer_id"], "to": engineer_id, "reason": reason})
     return get_request(rid)
 
