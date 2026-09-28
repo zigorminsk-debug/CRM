@@ -164,7 +164,10 @@ class MainActivity : AppCompatActivity() {
         // диагностика: какая версия установлена и до какого события дочитана лента
         val (vn, vc) = Updater.installedVersion(this)
         val diag = TextView(this)
-        diag.text = "Версия: $vn (сборка $vc) · лента прочитана до id=${prefs.getLong("feed_id", 0L)}"
+        diag.text = "Версия: $vn (сборка $vc) · лента до id=${prefs.getLong("feed_id", 0L)}"
+        Updater.lastInfo?.let {
+            diag.text += "\nОбновления: сервер знает ${it.version}" + if (it.stale) " (УСТАРЕВШИЕ — нет связи с GitHub)" else ""
+        }
         diag.textSize = 12f
         diag.setTextColor(0xFF888888.toInt())
         box.addView(diag)
@@ -348,10 +351,7 @@ class MainActivity : AppCompatActivity() {
             val darr = plan.optJSONArray("deliveries") ?: org.json.JSONArray()
             for (i in 0 until darr.length()) deliveries.add(Delivery.from(darr.getJSONObject(i)))
             val engineer = plan.optJSONObject("engineer")?.optString("full_name") ?: "Инженер"
-            // пробег считается от стартовой точки маршрута (адрес офиса) через заявки по порядку
-            val startName = plan.optJSONObject("start")?.optString("name").orEmpty()
-            val meta = "Заявок: ${list.size} · пробег ${plan.optDouble("total_km")} км · ~${plan.optDouble("total_hours")} ч" +
-                if (startName.isNotBlank()) " · старт: $startName" else ""
+            val meta = "Заявок: ${list.size} · пробег ${plan.optDouble("total_km")} км · ~${plan.optDouble("total_hours")} ч"
             val shownDay = plan.optString("day", day)
             runOnUiThread {
                 tasks = list

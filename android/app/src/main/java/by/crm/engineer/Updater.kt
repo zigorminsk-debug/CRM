@@ -38,8 +38,13 @@ object Updater {
         val notes: String,
         val url: String,
         val sha256: String,
-        val size: Long
+        val size: Long,
+        val stale: Boolean = false
     )
+
+    /** Последние сведения, полученные от сервера (для диагностики в 🔔). */
+    var lastInfo: Info? = null
+        private set
 
     /** Версия установленного приложения. */
     fun installedVersion(ctx: Context): Pair<String, Int> {
@@ -77,8 +82,10 @@ object Updater {
                 notes = latest.optString("notes"),
                 url = apk.optString("url"),
                 sha256 = apk.optString("sha256"),
-                size = apk.optLong("size")
+                size = apk.optLong("size"),
+                stale = latest.optBoolean("stale", false)
             )
+            lastInfo = info
             if (info.url.isEmpty()) null else info
         } catch (e: Exception) {
             Log.w(TAG, "Не удалось проверить обновления: ${e.message}")
@@ -106,8 +113,25 @@ object Updater {
 
                     info.build > installedCode -> onAvailable(info)
 
+                    installedCode >= info.build && info.build > 0 -> {
+                        val msg = StringBuilder()
+                        if (installedCode > info.build) {
+                            msg.append("Установлена $installedName — она НОВЕЕ, чем известно серверу (${info.version}).")
+                            msg.append("\n\nЭто значит, что сервер давно не мог связаться с GitHub:")
+                            msg.append("\n• обновите CRM-Server.exe на сервере;")
+                            msg.append("\n• проверьте интернет на компьютере сервера.")
+                            msg.append("\nПосле этого обновления снова будут приходить сами.")
+                        } else {
+                            msg.append("Установлена последняя версия $installedName.")
+                        }
+                        if (info.stale) {
+                            msg.append("\n\n⚠ Сведения сервера устарели (нет связи с GitHub).")
+                        }
+                        alert(activity, "Обновление", msg.toString())
+                    }
+
                     !silent -> alert(activity, "Обновление",
-                        "Установлена последняя версия $installedName.\n\nНа GitHub опубликована ${info.version}.")
+                        "Установлена последняя версия $installedName.")
                 }
             }
         }.start()

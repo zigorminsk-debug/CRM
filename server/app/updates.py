@@ -156,9 +156,16 @@ def release_info(force: bool = False) -> dict:
             error = f"{error} | {type(exc2).__name__}: {exc2}"
 
     if data is not None:
+        data.pop("stale", None)
+        data.pop("stale_error", None)
         _cache.update(at=now, data=data, error="")
     elif _cache["data"]:
-        return _cache["data"]
+        # GitHub недоступен: отдаём последние успешные сведения, но честно
+        # помечаем их устаревшими — клиенты покажут предупреждение
+        stale = dict(_cache["data"])
+        stale["stale"] = True
+        stale["stale_error"] = error
+        return stale
     else:
         _cache.update(at=now, data=None, error=error)
     return data or {}
