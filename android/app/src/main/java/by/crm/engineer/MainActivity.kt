@@ -229,7 +229,7 @@ class MainActivity : AppCompatActivity() {
         // проверять обновления при каждом открытии приложения (не чаще раза в 6 ч):
         // процесс может жить днями — проверки только при запуске мало
         val prefs = getSharedPreferences("crm", Context.MODE_PRIVATE)
-        if (System.currentTimeMillis() - prefs.getLong("update_last_check", 0L) > 6 * 3600_000L) {
+        if (System.currentTimeMillis() - prefs.getLong("update_last_check", 0L) > 1800_000L) {
             checkUpdates(false)
         }
     }
@@ -355,7 +355,7 @@ class MainActivity : AppCompatActivity() {
         val last = stops.last()
         val sb = StringBuilder("yandexnavi://build_route_on_map?lat_to=${last.lat}&lon_to=${last.lon}")
         stops.dropLast(1).forEachIndexed { i, t ->
-            sb.append("&via_$i=").append(Uri.encode("${t.lat},${t.lon}"))
+            sb.append("&via_$i=${t.lat},${t.lon}")
         }
         val fallback = "https://yandex.ru/maps/?rtext=" + stops.joinToString("~") { "${it.lat},${it.lon}" } + "&rtt=auto"
         openNavigatorUrl(sb.toString(), fallback)
