@@ -5,4 +5,5 @@
     <color name="card">#FFFFFF</color>
     <color name="text">#12203A</color>
     <color name="muted">#64748B</color>
+    <color name="panel2">#E7EDF6</color>
 </resources>

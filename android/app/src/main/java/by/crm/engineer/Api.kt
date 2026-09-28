@@ -20,29 +20,47 @@ class Api(private val ctx: Context) {
     private fun prefs() = ctx.getSharedPreferences("crm", Context.MODE_PRIVATE)
 
     private fun request(method: String, path: String, body: JSONObject? = null): JSONObject {
-        val url = URL(base.trimEnd('/') + path)
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = method
-        conn.connectTimeout = 15000
-        conn.readTimeout = 40000
-        conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        conn.setRequestProperty("Accept", "application/json")
-        if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
-        if (body != null) {
-            conn.doOutput = true
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        try {
+            val url = URL(base.trimEnd('/') + path)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = method
+            conn.connectTimeout = 15000
+            conn.readTimeout = 40000
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.setRequestProperty("Accept", "application/json")
+            if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
+            if (body != null) {
+                conn.doOutput = true
+                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            val text = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+            val json = if (text.trim().startsWith("{")) JSONObject(text) else JSONObject("""{"items":$text}""")
+            if (code !in 200..299) {
+                throw ApiException(json.optString("error", json.optString("detail", "HTTP $code")))
+            }
+            return json
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: java.net.UnknownHostException) {
+            throw ApiException("Сервер «${e.message}» не найден. Проверьте адрес сервера и Wi-Fi")
+        } catch (e: java.net.ConnectException) {
+            throw ApiException("Сервер отклонил подключение. Проверьте, что сервер запущен, и разрешите порт в брандмауэре Windows")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw ApiException("Сервер не отвечает (таймаут). Проверьте, что сервер запущен и доступен по этому адресу")
+        } catch (e: java.io.IOException) {
+            throw ApiException("Нет связи с сервером (${e.javaClass.simpleName}). Проверьте адрес, интернет и брандмауэр")
+        } catch (e: org.json.JSONException) {
+            throw ApiException("По этому адресу отвечает не CRM-сервер. Проверьте адрес (должен быть вида http://IP:8000)")
         }
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
-        val text = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
-        val json = if (text.trim().startsWith("{")) JSONObject(text) else JSONObject("""{"items":$text}""")
-        if (code !in 200..299) {
-            throw ApiException(json.optString("error", json.optString("detail", "HTTP $code")))
-        }
-        return json
     }
 
     class ApiException(message: String) : Exception(message)
+
+    // ------------------------------------------------------------------ служебные
+    /** Проверка доступности сервера: GET /api/health (без авторизации). */
+    fun health(): JSONObject = request("GET", "/api/health")
 
     // ------------------------------------------------------------------ вход
     fun saveServer(url: String) {
@@ -68,6 +86,9 @@ class Api(private val ctx: Context) {
     fun route(day: String): JSONObject = request("GET", "/api/engineer/route?day=$day")
 
     fun tasks(): JSONObject = request("GET", "/api/engineer/tasks")
+
+    /** История исполненных заявок (кнопка «История»). */
+    fun history(): JSONObject = request("GET", "/api/engineer/history")
 
     /** Кнопка «Поехали» — заявка переходит в работу, приложение открывает Яндекс.Навигатор. */
     fun go(id: Int): JSONObject = request("POST", "/api/engineer/task/$id/go", JSONObject())

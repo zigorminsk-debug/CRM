@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -32,8 +33,13 @@ TIMEOUT = float(os.environ.get("CRM_UPDATE_TIMEOUT", "6"))
 
 # Каталоги, где может лежать файл версии: корень репозитория (VERSION) или
 # корень распакованного серверного дистрибутива (crm-server/VERSION, crm-server/BUILD).
+# В собранном exe (PyInstaller) VERSION/BUILD вшиты в ресурсы (sys._MEIPASS),
+# а переопределяющие файлы можно положить рядом с самим exe.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOTS = [os.path.dirname(_HERE), os.path.dirname(os.path.dirname(_HERE))]
+if getattr(sys, "frozen", False):
+    _bundle = getattr(sys, "_MEIPASS", _HERE)
+    _ROOTS = [_bundle, os.path.dirname(os.path.abspath(sys.executable))]
 _ROOT = _ROOTS[1]
 
 _cache: dict = {"at": 0.0, "data": None, "error": ""}
@@ -94,7 +100,7 @@ def version_info() -> dict:
     base = base_version()
     full = os.environ.get("CRM_VERSION", "").strip() or (f"{base}.{build}" if build else base)
     return {
-        "app": "CRM — заявки на заправку картриджей и ремонт оргтехники",
+        "app": "Cartridge Engineer — заявки на заправку картриджей и ремонт оргтехники",
         "base": base,
         "build": build,
         "version": full,

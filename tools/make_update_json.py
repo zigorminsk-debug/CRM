@@ -52,7 +52,7 @@ def main() -> int:
 
     base_url = f"https://github.com/{args.repo}/releases/download/{args.tag}"
     manifest = {
-        "app": "CRM — заявки на заправку картриджей и ремонт оргтехники",
+        "app": "Cartridge Engineer — заявки на заправку картриджей и ремонт оргтехники",
         "version": args.version,
         "build": args.build,
         "tag": args.tag,

@@ -101,6 +101,8 @@ def normalize_phone(raw: str) -> str:
         digits = digits[2:]
     elif digits.startswith("8") and len(digits) == 10:
         digits = digits[1:]
+    elif digits.startswith("0") and len(digits) == 10:
+        digits = digits[1:]          # 029 1234567 -> 29 1234567
     if len(digits) == 9 and digits.isdigit():
         return "+375" + digits
     if len(digits) == 7 and digits.startswith("0"):           # городской без кода
@@ -145,16 +147,19 @@ def validate_request_form(data: dict, works_codes: set[str] | None = None) -> tu
     errors: list[str] = []
     out = dict(data)
 
+    # УНП и р/с необязательны (частные лица): проверяем только если заполнены
     unp = normalize_unp(data.get("unp", ""))
-    err = unp_error(unp)
-    if err:
-        errors.append(err)
+    if unp:
+        err = unp_error(unp)
+        if err:
+            errors.append(err)
     out["unp"] = unp
 
     acc = normalize_account(data.get("bank_account", ""))
-    err = account_error(acc)
-    if err:
-        errors.append(err)
+    if acc:
+        err = account_error(acc)
+        if err:
+            errors.append(err)
     out["bank_account"] = acc
 
     phone = normalize_phone(data.get("phone", ""))

@@ -98,11 +98,20 @@ jobs:
           set -o pipefail
           osslsigncode verify -CAfile signing/windows-cert.pem -in winclient/dist/CRM-Windows.exe \
             2>&1 | tee "$RUNNER_TEMP/windows-sign.log"
+      - name: Собрать CRM-Client.exe (лаунчер кабинета клиента)
+        run: |
+          pip install -q ziglang
+          bash clientapp/build.sh
+          cp clientapp/dist/CRM-Client.exe winclient/dist/CRM-Client.exe
+          cp clientapp/dist/CRM-Web.exe winclient/dist/CRM-Web.exe
       - name: Сохранить exe в артефакты
         uses: actions/upload-artifact@v4
         with:
           name: crm-windows
-          path: winclient/dist/CRM-Windows.exe
+          path: |
+            winclient/dist/CRM-Windows.exe
+            winclient/dist/CRM-Client.exe
+            winclient/dist/CRM-Web.exe
           if-no-files-found: error
       - name: Журнал сборки exe
         if: always()
@@ -113,6 +122,93 @@ jobs:
             ${{ runner.temp }}/windows-build.log
             ${{ runner.temp }}/windows-sign.log
           if-no-files-found: ignore
+
+  # -------------------------------------------- сервер одним файлом (exe)
+  server-exe:
+    name: Сервер одним файлом (exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости сервера и PyInstaller
+        run: pip install -r server/requirements.txt pyinstaller
+      - name: Сборка CRM-Server.exe (сервер без установки Python)
+        run: bash server/build_exe.sh
+      - name: Проверка запуска exe (health-запрос)
+        shell: bash
+        run: |
+          CRM_DB="$RUNNER_TEMP/crm-exe.sqlite3" ./server/dist/CRM-Server.exe --no-gui --port 8901 > "$RUNNER_TEMP/server-exe.log" 2>&1 &
+          SRV_PID=$!
+          OK=""
+          for i in $(seq 1 60); do
+            if curl -fs http://127.0.0.1:8901/api/health >/dev/null 2>&1; then OK=1; break; fi
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8901/api/health || true
+          kill $SRV_PID 2>/dev/null || true
+          if [ -z "$OK" ]; then
+            echo "::error::CRM-Server.exe не поднялся"
+            tail -60 "$RUNNER_TEMP/server-exe.log" || true
+            exit 1
+          fi
+          echo "CRM-Server.exe поднялся, health-запрос отвечает"
+      - name: Сохранить exe сервера в артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-server-exe
+          path: server/dist/CRM-Server.exe
+          if-no-files-found: error
+      - name: Журнал запуска exe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-logs-server-exe
+          path: ${{ runner.temp }}/server-exe.log
+          if-no-files-found: ignore
+
+  # ------------------------------------------------- установщики Windows (Setup)
+  installers:
+    name: Установщики Windows (Setup)
+    runs-on: ubuntu-latest
+    needs: [windows, server-exe]
+    steps:
+      - uses: actions/checkout@v4
+      - name: NSIS
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nsis
+          makensis -VERSION
+      - name: Скачать собранные exe
+        uses: actions/download-artifact@v4
+        with:
+          pattern: crm-*
+          path: artifacts
+          merge-multiple: true
+      - name: Стейджинг и сборка установщиков
+        run: |
+          mkdir -p setup/icons
+          cp installer/crm-server-setup.nsi installer/crm-windows-setup.nsi installer/crm-client-setup.nsi setup/
+          cp icons/app.ico setup/icons/
+          cp artifacts/CRM-Server.exe setup/
+          cp artifacts/CRM-Windows.exe setup/
+          cp artifacts/CRM-Client.exe setup/
+          cp artifacts/CRM-Web.exe setup/
+          cd setup
+          makensis -V2 crm-server-setup.nsi
+          makensis -V2 crm-windows-setup.nsi
+          makensis -V2 crm-client-setup.nsi
+          ls -la CRM-Server-Setup.exe CRM-Windows-Setup.exe CRM-Client-Setup.exe
+      - name: Сохранить установщики в артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-setup
+          path: |
+            setup/CRM-Server-Setup.exe
+            setup/CRM-Windows-Setup.exe
+            setup/CRM-Client-Setup.exe
+          if-no-files-found: error
 
   # ------------------------------------------------- приложение инженера (APK)
   android:
@@ -179,8 +275,8 @@ jobs:
   # --------------------------------------------- релиз с номером и манифестом
   release:
     name: Релиз и манифест автообновления
-    needs: [test, windows, android]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: [test, windows, android, server-exe, installers]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/arena/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -197,10 +293,12 @@ jobs:
           path: artifacts
       - name: Разложить сборки и подготовить пакеты раздачи
         run: |
-          mkdir -p winclient/dist android/dist
+          mkdir -p winclient/dist android/dist server/dist
           cp artifacts/CRM-Windows.exe winclient/dist/
           cp artifacts/CRM-Engineer.apk android/dist/
+          cp artifacts/CRM-Server.exe server/dist/
           python3 tools/pack_downloads.py
+          cp artifacts/CRM-Server-Setup.exe artifacts/CRM-Windows-Setup.exe artifacts/CRM-Client-Setup.exe downloads/
       - name: Манифест автообновления (update.json)
         id: version
         run: |

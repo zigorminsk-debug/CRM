@@ -3,23 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CRM — админка диспетчера</title>
+<title>Cartridge Engineer — админка</title>
+<link rel="icon" href="/static/mobile/icon-32.png">
 <link rel="stylesheet" href="/static/admin/admin.css">
 </head>
 <body>
 <header>
-  <div class="brand">CRM <span>заявки · зоны · маршруты</span></div>
+  <div class="brand">Cartridge Engineer <span>заявки · зоны · маршруты</span></div>
   <nav id="tabs">
     <button data-tab="requests" class="active">Заявки</button>
     <button data-tab="engineers">Инженеры</button>
     <button data-tab="zones">Зоны</button>
     <button data-tab="absences">Отпуска и замены</button>
     <button data-tab="works">Справочник работ</button>
+    <button data-tab="users">Пользователи</button>
     <button data-tab="reports">Отчёты</button>
     <button data-tab="settings">Настройки</button>
     <button data-tab="audit">Журнал</button>
   </nav>
-  <div class="user"><span id="whoami">—</span><button id="logout">Выйти</button></div>
+  <div class="user"><span id="whoami">—</span>
+    <a class="btn" href="/dispatcher">Консоль диспетчера</a>
+    <a class="btn" href="/client">Кабинет клиента</a>
+    <button id="logout">Выйти</button>
+  </div>
 </header>
 
 <section id="login" class="login-card">
@@ -132,18 +138,65 @@
     <div id="report"></div>
   </section>
 
+  <section id="tab-users" class="tab">
+    <h2>Пользователи</h2>
+    <div class="toolbar" id="role-tabs">
+      <button data-role="client" class="active">Клиенты</button>
+      <button data-role="engineer">Инженеры</button>
+      <button data-role="operator">Диспетчеры</button>
+      <button data-role="admin">Администраторы</button>
+    </div>
+    <div class="form-stack">
+      <div class="toolbar" style="margin-bottom:0">
+        <input id="nu-username" placeholder="Логин">
+        <input id="nu-pass" placeholder="Пароль (мин. 6 символов)">
+        <input id="nu-full" placeholder="ФИО / контакт">
+      </div>
+      <div class="toolbar" style="margin-bottom:0" id="nu-client-fields">
+        <input id="nu-company" placeholder="Наименование организации" style="max-width:340px">
+        <input id="nu-unp" placeholder="УНП организации (9 цифр)" size="16">
+      </div>
+      <div class="toolbar" style="margin-bottom:0" id="nu-engineer-fields" hidden>
+        <select id="nu-eng"><option value="">— не привязан к инженеру —</option></select>
+      </div>
+      <div class="toolbar" style="margin-bottom:0">
+        <button id="nu-add" class="primary">Создать пользователя</button>
+        <span class="hint" id="nu-role-hint"></span>
+      </div>
+    </div>
+    <table id="nu-table">
+      <thead><tr><th>ID</th><th>Логин</th><th>ФИО / контакт</th><th id="nu-col-extra">Организация / УНП</th><th>Статус</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="hint">Клиент входит в кабинет /client и подаёт заявки от своей организации (по УНП).
+      Диспетчер работает в консоли /dispatcher. Инженер — в мобильном приложении /m.</p>
+  </section>
+
   <section id="tab-settings" class="tab">
     <h2>Настройки сервера</h2>
     <div id="settings-form" class="form-stack"></div>
     <button id="set-save" class="primary">Сохранить настройки</button>
-    <h3>Пользователи</h3>
-    <div class="toolbar">
-      <input id="u-user" placeholder="Логин"><input id="u-pass" placeholder="Пароль">
-      <select id="u-role"><option value="operator">Оператор</option><option value="admin">Администратор</option><option value="engineer">Инженер (мобильное приложение)</option></select>
-      <select id="u-eng"><option value="">— не привязан —</option></select>
-      <button id="u-add" class="primary">Создать пользователя</button>
+    <h3>Обслуживание базы</h3>
+    <div class="report-block">
+      <b>Очистить базу от демо-данных.</b> Удаляются: все заявки и доставки, контрагенты, инженеры
+      (вместе с закреплениями зон и отпусками), лента событий. Остаётся: зоны, справочник работ,
+      настройки и пользователи. После очистки добавьте реальных инженеров и закрепите зоны.
+      <div class="toolbar" style="margin-top:10px">
+        <button id="purge-demo" class="danger">Очистить базу от демо-записей…</button>
+      </div>
     </div>
-    <table id="user-table"><thead><tr><th>ID</th><th>Логин</th><th>Роль</th><th>ФИО</th><th>Инженер</th></tr></thead><tbody></tbody></table>
+    <div class="report-block">
+      <b>Резервная копия базы.</b> Файл базы (data/crm.sqlite3) можно выгрузить и потом восстановить
+      на этом или любом другом сервере: остановите сервер, положите папку <b>data</b> рядом с новым
+      CRM-Server.exe — он сам её подхватит. Перед восстановлением текущая база автоматически
+      сохраняется в data/backups/auto-before-restore-*.sqlite.
+      <div class="toolbar" style="margin-top:10px">
+        <button id="backup-dl">Выгрузить базу в бэкап</button>
+        <input type="file" id="backup-file" accept=".sqlite,.sqlite3,.db" style="max-width:280px">
+        <button id="backup-restore" class="danger">Загрузить базу из бэкапа…</button>
+      </div>
+      <div class="muted" id="backup-info" style="margin-top:6px;font-size:12px"></div>
+    </div>
   </section>
 
   <section id="tab-audit" class="tab">

@@ -24,7 +24,7 @@ mkdir -p dist
 MODE="${1:-auto}"
 OUT="${OUT:-dist/CRM-Windows.exe}"
 SRC="src/main_win.cpp src/api.cpp src/validate.cpp src/hash.cpp src/http_win.cpp"
-LIBS="-lwinhttp -lcomctl32 -lgdi32 -luser32 -lshell32 -lole32 -luuid"
+LIBS="-lwinhttp -lcomctl32 -lgdi32 -luser32 -lshell32 -lole32 -luuid -ladvapi32"
 FLAGS="-std=c++17 -O2 -DUNICODE -D_UNICODE -Wl,--subsystem,windows -Wl,-s"
 
 # ---------------------------------------------------------------- версия сборки
@@ -39,7 +39,7 @@ RC_SRC="src/main.rc"
 if [[ ! -f "$RC_SRC" ]]; then
   sed -e "s/@FILEVERSION@/$FILEVERSION/g" \
       -e "s/@VERSION@/$VERSION/g" \
-      -e "s/@COMPANY@/CRM Kartridzh/g" "src/main.rc.in" > "$RC_SRC"
+      -e "s/@COMPANY@/Cartridge Engineer/g" "src/main.rc.in" > "$RC_SRC"
 fi
 RC_OBJ="dist/CRM-Windows.res"
 
