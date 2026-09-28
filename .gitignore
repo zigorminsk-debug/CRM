@@ -41,3 +41,4 @@ server/dist/
 # Журнал ошибок запуска CRM-Server.exe
 crm-server-error.txt
 server/data/port.txt
+clientapp/dist/

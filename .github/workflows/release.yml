@@ -98,11 +98,17 @@ jobs:
           set -o pipefail
           osslsigncode verify -CAfile signing/windows-cert.pem -in winclient/dist/CRM-Windows.exe \
             2>&1 | tee "$RUNNER_TEMP/windows-sign.log"
+      - name: Собрать CRM-Client.exe (лаунчер кабинета клиента)
+        run: |
+          pip install -q ziglang
+          bash clientapp/build.sh
       - name: Сохранить exe в артефакты
         uses: actions/upload-artifact@v4
         with:
           name: crm-windows
-          path: winclient/dist/CRM-Windows.exe
+          path: |
+            winclient/dist/CRM-Windows.exe
+            clientapp/dist/CRM-Client.exe
           if-no-files-found: error
       - name: Журнал сборки exe
         if: always()
@@ -180,14 +186,16 @@ jobs:
       - name: Стейджинг и сборка установщиков
         run: |
           mkdir -p setup/icons
-          cp installer/crm-server-setup.nsi installer/crm-windows-setup.nsi setup/
+          cp installer/crm-server-setup.nsi installer/crm-windows-setup.nsi installer/crm-client-setup.nsi setup/
           cp icons/app.ico setup/icons/
           cp artifacts/CRM-Server.exe setup/
           cp artifacts/CRM-Windows.exe setup/
+          cp artifacts/CRM-Client.exe setup/
           cd setup
           makensis -V2 crm-server-setup.nsi
           makensis -V2 crm-windows-setup.nsi
-          ls -la CRM-Server-Setup.exe CRM-Windows-Setup.exe
+          makensis -V2 crm-client-setup.nsi
+          ls -la CRM-Server-Setup.exe CRM-Windows-Setup.exe CRM-Client-Setup.exe
       - name: Сохранить установщики в артефакты
         uses: actions/upload-artifact@v4
         with:
@@ -195,6 +203,7 @@ jobs:
           path: |
             setup/CRM-Server-Setup.exe
             setup/CRM-Windows-Setup.exe
+            setup/CRM-Client-Setup.exe
           if-no-files-found: error
 
   # ------------------------------------------------- приложение инженера (APK)
@@ -285,7 +294,7 @@ jobs:
           cp artifacts/CRM-Engineer.apk android/dist/
           cp artifacts/CRM-Server.exe server/dist/
           python3 tools/pack_downloads.py
-          cp artifacts/CRM-Server-Setup.exe artifacts/CRM-Windows-Setup.exe downloads/
+          cp artifacts/CRM-Server-Setup.exe artifacts/CRM-Windows-Setup.exe artifacts/CRM-Client-Setup.exe downloads/
       - name: Манифест автообновления (update.json)
         id: version
         run: |
