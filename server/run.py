@@ -159,15 +159,8 @@ def _write_crash_log(text: str) -> str | None:
         return None
 
 
-def run_console(host: str, port: int, announce_seconds: int | None = None,
-                wait_uvicorn: bool = True) -> None:
-    """Консольный режим.
-
-    Обычное поведение: печатаем адреса и крутим uvicorn до Ctrl+C.
-    announce_seconds=20 (фоновый запуск двойным кликом): после успешного
-    старта печатаем адреса, ждём 20 секунд, чтобы пользователь успел
-    прочитать, и закрываем консоль — сервер продолжает работать фоном.
-    """
+def run_console(host: str, port: int) -> None:
+    """Консольный режим: печать адресов и запуск uvicorn в текущем потоке."""
     # Порт проверяем ДО запуска: занятый порт — самая частая причина
     # «окно мигнуло и закрылось» (uvicorn завершается с SystemExit).
     busy = _can_bind(host, port)
@@ -180,26 +173,6 @@ def run_console(host: str, port: int, announce_seconds: int | None = None,
                "    set PORT=8010 && CRM-Server.exe   →  http://127.0.0.1:8010")
         raise SystemExit(1)
 
-    _print_addresses(host, port)
-    if announce_seconds and not wait_uvicorn:
-        # фоновый режим: убеждаемся, что сервер поднялся, и отпускаем консоль
-        import time as _time
-        import urllib.request as _ur
-        ok = False
-        for _ in range(40):                       # до 20 секунд ждём /api/health
-            try:
-                with _ur.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
-                    if r.status == 200:
-                        ok = True
-                        break
-            except Exception:
-                _time.sleep(0.5)
-        if ok:
-            print(f"\nСервер работает в фоне. Это окно закроется через {announce_seconds} с…")
-            _time.sleep(announce_seconds)
-        else:
-            print("\nСервер не ответил — оставляю окно открытым для диагностики.")
-        return
     try:
         if getattr(sys, "frozen", False):
             from app.main import app          # в exe модуль уже вшит — импортируем напрямую
@@ -289,48 +262,81 @@ def _shift_pressed() -> bool:
         return False
 
 
-def _spawn_detached() -> bool:
-    """Перезапустить себя фоновым процессом (окно можно закрыть — сервер живёт).
-
-    Запускаем через PowerShell Start-Process отдельным процессом: он переживёт
-    закрытие консоли. Возврат False — не получилось (останемся в этой консоли).
-    """
+def _hide_console() -> None:
+    """Скрыть консольное окно (сервер продолжает работать в этом процессе)."""
     if os.name != "nt":
-        return False
+        return
     try:
-        exe = sys.executable if getattr(sys, "frozen", False) else None
-        if not exe:
-            return False
-        import subprocess
-        # --no-gui + признак фонового запуска; своё окно фоновый процесс не создаёт
-        cmdline = f"Start-Process -FilePath '{exe}' -ArgumentList '--no-gui --bg' -WindowStyle Hidden"
-        rc = subprocess.call(["powershell", "-NoProfile", "-Command", cmdline],
-                             creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
-        return rc == 0
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)   # SW_HIDE
     except Exception:
-        return False
+        pass
 
 
 def main() -> None:
     host, port, no_gui = _parse_and_setup()
 
-    # обычный двойной клик (без Shift): если мы в консоли сервера ещё нет —
-    # уходим в фон: консоль напечатает адреса, подождёт 20 с и закроется,
-    # а сервер продолжит работать скрытым процессом.
-    if not no_gui and not _shift_pressed() and "--bg" not in sys.argv and os.name == "nt":
-        if _spawn_detached():
-            print("Сервер запускается в фоновом режиме…")
-            run_console(host, port, announce_seconds=20, wait_uvicorn=False)
-            raise SystemExit(0)
-        # перезапуск не удался — работаем как раньше (консоль/окно)
-
-    if not no_gui and not _shift_pressed() and "--bg" in sys.argv:
-        no_gui = True   # фоновый процесс: строго без окна
+    # обычный запуск (без Shift): сервер в фоне — консоль сама скроется через 20 с.
+    # Работаем в ЭТОМ ЖЕ процессе (никаких перезапусков): PyInstaller onefile
+    # не создаёт вторую временную папку и не ругается «Failed to remove
+    # temporary directory» при выходе.
+    if not no_gui and not _shift_pressed() and os.name == "nt":
+        run_background(host, port)
+        raise SystemExit(0)
 
     if not no_gui and run_gui(host, port):
         raise SystemExit(0)
     run_console(host, port)
 
+
+def run_background(host: str, port: int) -> None:
+    """Фоновый запуск двойным щелчком: адреса на экране, через 20 с консоль
+    скрывается, сервер продолжает работать в этом же процессе."""
+    busy = _can_bind(host, port)
+    if busy:
+        _fatal(f"Не удалось занять порт {port}: {busy}\n\n"
+               f"Порт {port} уже занят — возможно, CRM-Server.exe уже запущен в фоне.\n"
+               "Запустите CRM-Server.exe с зажатым Shift — окно управления покажет\n"
+               "работающий сервер и предложит «Остановить фоновый».\n\n"
+               "Или снимите задачу: taskkill /F /IM CRM-Server.exe")
+        raise SystemExit(1)
+
+    import threading
+    import time
+
+    _print_addresses(host, port)
+    config = uvicorn.Config("app.main:app" if not getattr(sys, "frozen", False) else None,
+                            host=host, port=port, log_level="info", log_config=LOG_CONFIG)
+    if getattr(sys, "frozen", False):
+        from app.main import app as _app
+        config = uvicorn.Config(_app, host=host, port=port, log_level="info", log_config=LOG_CONFIG)
+    server = uvicorn.Server(config)
+    th = threading.Thread(target=server.run, daemon=True)
+    th.start()
+
+    ok = False
+    for _ in range(40):                       # до 20 секунд ждём /api/health
+        if server.started:
+            try:
+                import urllib.request
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+                    ok = r.status == 200
+                    break
+            except Exception:
+                pass
+        time.sleep(0.5)
+
+    if ok:
+        print("\nСервер работает в фоне. Это окно закроется через 20 секунд…")
+        print("(окно управления: запустите CRM-Server.exe с зажатым Shift)")
+        time.sleep(20)
+        _hide_console()
+        th.join()                              # живём, пока работает сервер
+    else:
+        print("\nСервер не ответил — окно оставлено открытым для диагностики.")
+        th.join()
 
 def _parse_and_setup() -> tuple[str, int, bool]:
     args = _parse_args()

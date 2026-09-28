@@ -1090,27 +1090,91 @@ def root() -> HTMLResponse:
     </body></html>""")
 
 
+def _page_or_error(path: str, title: str) -> HTMLResponse | FileResponse:
+    """Страница интерфейса; если файл не найден (неполное обновление) —
+    понятная страница вместо голого «Internal Server Error»."""
+    if not os.path.exists(path):
+        return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+        <title>{title} — файлы не найдены</title></head>
+        <body style="font:16px system-ui;margin:40px;line-height:1.5">
+        <h2>Файл интерфейса не найден</h2>
+        <p>Сервер запущен, но в папке программы нет файла:<br><code>{path}</code></p>
+        <p>Обычно это значит, что при обновлении скопировались не все файлы.
+        Установите сервер заново из CRM-Server-Setup.exe (или распакуйте свежий
+        crm-server.zip целиком) — база данных в папке data не пострадает.</p>
+        </body></html>""", status_code=503)
+    return FileResponse(path)
+
+
 @app.get("/admin")
-def admin_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC_DIR, "admin", "index.html"))
+def admin_page():
+    return _page_or_error(os.path.join(STATIC_DIR, "admin", "index.html"), "Админка")
 
 
 @app.get("/m")
-def mobile_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC_DIR, "mobile", "index.html"))
+def mobile_page():
+    return _page_or_error(os.path.join(STATIC_DIR, "mobile", "index.html"), "Приложение инженера")
 
 
 @app.get("/dispatcher")
-def dispatcher_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC_DIR, "dispatcher", "index.html"))
+def dispatcher_page():
+    return _page_or_error(os.path.join(STATIC_DIR, "dispatcher", "index.html"), "Диспетчер")
 
 
 @app.get("/client")
-def client_page() -> FileResponse:
-    return FileResponse(os.path.join(STATIC_DIR, "client", "index.html"))
+def client_page():
+    return _page_or_error(os.path.join(STATIC_DIR, "client", "index.html"), "Кабинет клиента")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exc_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Любая непредвиденная ошибка: трассировка в data/error.log (последние записи),
+    ответ — читаемый текст с краткой причиной (видно и в браузере, и в логах)."""
+    import traceback as _tb
+    trace = _tb.format_exc()
+    try:
+        log = os.path.join(db.DATA_DIR, "error.log")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("\n=== " + db.now() + " " + str(request.url) + " ===\n" + trace)
+        # держим файл компактным: не более ~400 КБ
+        if os.path.getsize(log) > 400_000:
+            with open(log, "r", encoding="utf-8") as f:
+                tail = f.read()[-200_000:]
+            with open(log, "w", encoding="utf-8") as f:
+                f.write(tail)
+    except OSError:
+        pass
+    return JSONResponse(status_code=500, content={
+        "ok": False,
+        "error": f"Внутренняя ошибка сервера: {exc.__class__.__name__}: {exc}. "
+                 f"Полная трассировка: data/error.log (или /api/diag)"})
+
+
+@app.get("/api/diag")
+def api_diag() -> dict:
+    """Диагностика сервера: версии, файлы интерфейсов, последние ошибки (без секретов)."""
+    import sys as _sys
+    pages = {}
+    for name, rel in (("admin", "admin/index.html"), ("mobile", "mobile/index.html"),
+                      ("dispatcher", "dispatcher/index.html"), ("client", "client/index.html")):
+        p = os.path.join(STATIC_DIR, rel)
+        pages[name] = {"ok": os.path.exists(p), "path": p}
+    last_error = ""
+    try:
+        log = os.path.join(db.DATA_DIR, "error.log")
+        if os.path.exists(log):
+            with open(log, "r", encoding="utf-8") as f:
+                last_error = f.read()[-4000:]
+    except OSError:
+        pass
+    return {"ok": True, "version": updates.version_info()["version"],
+            "python": _sys.version.split()[0], "data_dir": db.DATA_DIR,
+            "db": {"path": db.DB_PATH, "exists": os.path.exists(db.DB_PATH),
+                    "size": os.path.getsize(db.DB_PATH) if os.path.exists(db.DB_PATH) else 0},
+            "pages": pages, "last_error": last_error}
 
 
 @app.exception_handler(RequestValidationError)
