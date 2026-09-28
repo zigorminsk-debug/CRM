@@ -75,6 +75,32 @@ def load_saved_port() -> int | None:
     return _runtime.load_saved_port()
 
 
+def _bg_server_alive(port: int) -> bool:
+    """На порту отвечает наш CRM-сервер (health)?"""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _kill_bg_instances() -> None:
+    """Завершить другие процессы этого же exe (фоновый сервер)."""
+    if os.name != "nt":
+        return
+    try:
+        import subprocess
+        exe = _exe_path().replace("'", "''")
+        pid = os.getpid()
+        ps = ("Get-Process | Where-Object { $_.Path -eq '" + exe + "' -and $_.Id -ne " + str(pid) +
+              " } | Stop-Process -Force")
+        subprocess.call(["powershell", "-NoProfile", "-Command", ps],
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception:
+        pass
+
+
 def shift_pressed() -> bool:
     """True, если при запуске удерживали Shift — открыть настройки, не стартовать."""
     if os.name != "nt":
@@ -226,8 +252,16 @@ class ControlPanel:
         try:
             probe.bind((self.host, port))
         except OSError:
-            self._set_status(f"Порт {port} занят — укажите другой", COLOR_BUSY)
-            self._log(f"Порт {port} занят. Впишите свободный (например, 8010) и нажмите «Запустить».")
+            # порт занят: возможно, наш же сервер уже работает в фоне
+            if _bg_server_alive(port):
+                self._set_status(f"Сервер уже работает в фоне на порту {port}", COLOR_RUN)
+                self._log("Этот сервер запущен двойным щелчком и работает в фоне.")
+                self._log("Кнопка ниже остановит его. «Запустить» поднимет заново в этом окне.")
+                self.bg_port = port
+                self.btn_stop.configure(text="■ Остановить фоновый", state="normal")
+            else:
+                self._set_status(f"Порт {port} занят — укажите другой", COLOR_BUSY)
+                self._log(f"Порт {port} занят другой программой. Впишите свободный (например, 8010) и нажмите «Запустить».")
             return
         finally:
             probe.close()
@@ -252,6 +286,14 @@ class ControlPanel:
         self._toggle_buttons(running=True)
 
     def stop(self) -> None:
+        if self.server is None and getattr(self, "bg_port", None):
+            # останавливаем фоновый сервер (не этот процесс)
+            _kill_bg_instances()
+            self.btn_stop.configure(text="■ Остановить")
+            self.bg_port = None
+            self._set_status("Фоновый сервер остановлен", COLOR_OFF)
+            self._log("Фоновый сервер остановлен. «Запустить» — запустить снова.")
+            return
         if self.server is not None:
             self._log("Останавливаю сервер…")
             self.server.should_exit = True

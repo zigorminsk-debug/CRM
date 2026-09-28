@@ -159,8 +159,15 @@ def _write_crash_log(text: str) -> str | None:
         return None
 
 
-def run_console(host: str, port: int) -> None:
-    """Консольный режим: печать адресов и запуск uvicorn в текущем потоке."""
+def run_console(host: str, port: int, announce_seconds: int | None = None,
+                wait_uvicorn: bool = True) -> None:
+    """Консольный режим.
+
+    Обычное поведение: печатаем адреса и крутим uvicorn до Ctrl+C.
+    announce_seconds=20 (фоновый запуск двойным кликом): после успешного
+    старта печатаем адреса, ждём 20 секунд, чтобы пользователь успел
+    прочитать, и закрываем консоль — сервер продолжает работать фоном.
+    """
     # Порт проверяем ДО запуска: занятый порт — самая частая причина
     # «окно мигнуло и закрылось» (uvicorn завершается с SystemExit).
     busy = _can_bind(host, port)
@@ -174,6 +181,25 @@ def run_console(host: str, port: int) -> None:
         raise SystemExit(1)
 
     _print_addresses(host, port)
+    if announce_seconds and not wait_uvicorn:
+        # фоновый режим: убеждаемся, что сервер поднялся, и отпускаем консоль
+        import time as _time
+        import urllib.request as _ur
+        ok = False
+        for _ in range(40):                       # до 20 секунд ждём /api/health
+            try:
+                with _ur.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+                    if r.status == 200:
+                        ok = True
+                        break
+            except Exception:
+                _time.sleep(0.5)
+        if ok:
+            print(f"\nСервер работает в фоне. Это окно закроется через {announce_seconds} с…")
+            _time.sleep(announce_seconds)
+        else:
+            print("\nСервер не ответил — оставляю окно открытым для диагностики.")
+        return
     try:
         if getattr(sys, "frozen", False):
             from app.main import app          # в exe модуль уже вшит — импортируем напрямую
@@ -252,8 +278,55 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
+def _shift_pressed() -> bool:
+    """Shift удерживают при запуске — открыть окно управления."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+    except Exception:
+        return False
+
+
+def _spawn_detached() -> bool:
+    """Перезапустить себя фоновым процессом (окно можно закрыть — сервер живёт).
+
+    Запускаем через PowerShell Start-Process отдельным процессом: он переживёт
+    закрытие консоли. Возврат False — не получилось (останемся в этой консоли).
+    """
+    if os.name != "nt":
+        return False
+    try:
+        exe = sys.executable if getattr(sys, "frozen", False) else None
+        if not exe:
+            return False
+        import subprocess
+        # --no-gui + признак фонового запуска; своё окно фоновый процесс не создаёт
+        cmdline = f"Start-Process -FilePath '{exe}' -ArgumentList '--no-gui --bg' -WindowStyle Hidden"
+        rc = subprocess.call(["powershell", "-NoProfile", "-Command", cmdline],
+                             creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
+        return rc == 0
+    except Exception:
+        return False
+
+
 def main() -> None:
     host, port, no_gui = _parse_and_setup()
+
+    # обычный двойной клик (без Shift): если мы в консоли сервера ещё нет —
+    # уходим в фон: консоль напечатает адреса, подождёт 20 с и закроется,
+    # а сервер продолжит работать скрытым процессом.
+    if not no_gui and not _shift_pressed() and "--bg" not in sys.argv and os.name == "nt":
+        if _spawn_detached():
+            print("Сервер запускается в фоновом режиме…")
+            run_console(host, port, announce_seconds=20, wait_uvicorn=False)
+            raise SystemExit(0)
+        # перезапуск не удался — работаем как раньше (консоль/окно)
+
+    if not no_gui and not _shift_pressed() and "--bg" in sys.argv:
+        no_gui = True   # фоновый процесс: строго без окна
+
     if not no_gui and run_gui(host, port):
         raise SystemExit(0)
     run_console(host, port)
