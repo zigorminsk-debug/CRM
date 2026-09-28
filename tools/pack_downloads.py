@@ -47,6 +47,8 @@ def zip_tree(zf: zipfile.ZipFile, src_dir: str, arc_prefix: str = "") -> int:
 README_TXT = """CRM — заявки на заправку картриджей и ремонт оргтехники
 =========================================================
 
+Разработчик: Zakharevich Igor · +375 29 337-14-12 · ziv@csl.by
+
 Файлы в этой папке:
 
   CRM-Server-Setup.exe   — установщик сервера: порт, автостарт с Windows, брандмауэр, ярлыки

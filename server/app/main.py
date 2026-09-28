@@ -1087,6 +1087,10 @@ def root() -> HTMLResponse:
        <a class="b" href="/docs">API (docs)</a></p>
     <p>Windows-клиент подаёт заявки на <code>POST /api/requests</code>, инженер получает их
        в мобильном приложении с маршрутом на день и Яндекс.Навигатором.</p>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+    <p style="color:#64748b">Разработчик: Zakharevich Igor ·
+       <a href="tel:+375293371412">+375 29 337-14-12</a> ·
+       <a href="mailto:ziv@csl.by">ziv@csl.by</a></p>
     </body></html>""")
 
 

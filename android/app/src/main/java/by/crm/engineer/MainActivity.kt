@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val pInfo = packageManager.getPackageInfo(packageName, 0)
             findViewById<TextView>(R.id.versionLabel).text = "Версия приложения: " + pInfo.versionName
+        findViewById<TextView>(R.id.versionLabel).setOnClickListener { showAbout() }
         } catch (_: Exception) { }
         findViewById<Button>(R.id.loginButton).setOnClickListener { doLogin() }
         findViewById<Button>(R.id.checkButton).setOnClickListener { doCheck() }
@@ -122,6 +123,37 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    // ------------------------------------------------------------- о программе
+    private fun showAbout() {
+        val (vn, vc) = Updater.installedVersion(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 12)
+        }
+        val text = TextView(this)
+        text.text = "Cartridge Engineer — CRM для сервиса картриджей и оргтехники.\n\n" +
+            "Версия: $vn (сборка $vc)\n\nРазработчик: Zakharevich Igor"
+        text.textSize = 15f
+        box.addView(text)
+        val call = Button(this)
+        call.text = "📞 +375 29 337-14-12"
+        call.setOnClickListener {
+            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:+375293371412")))
+        }
+        box.addView(call)
+        val mail = Button(this)
+        mail.text = "✉ ziv@csl.by"
+        mail.setOnClickListener {
+            startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:ziv@csl.by")))
+        }
+        box.addView(mail)
+        AlertDialog.Builder(this)
+            .setTitle("О программе")
+            .setView(box)
+            .setPositiveButton("Закрыть", null)
+            .show()
+    }
+
     // ----------------------------------------------- настройки сигнала о заявке
     private fun showSignalSettings() {
         val prefs = getSharedPreferences("crm", Context.MODE_PRIVATE)
@@ -158,6 +190,11 @@ class MainActivity : AppCompatActivity() {
         hint.textSize = 13f
         hint.setPadding(0, 20, 0, 0)
         box.addView(hint)
+
+        val about = Button(this)
+        about.text = "О программе и разработчике"
+        about.setOnClickListener { showAbout() }
+        box.addView(about)
 
         AlertDialog.Builder(this)
             .setTitle("Сигнал о новой заявке")

@@ -201,6 +201,8 @@ class ControlPanel:
 
         self.addr_var = tk.StringVar(value="")
         tk.Label(top, textvariable=self.addr_var, justify="left", fg="#333333").pack(anchor="w")
+        tk.Label(top, text="Разработчик: Zakharevich Igor · +375 29 337-14-12 · ziv@csl.by",
+                 justify="left", fg="#777777").pack(anchor="w")
 
         frame = ttk.LabelFrame(self.root, text=" Журнал ", padding=4)
         frame.pack(fill="both", expand=True, padx=10, pady=(4, 10))
