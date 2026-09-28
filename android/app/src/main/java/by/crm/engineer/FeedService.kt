@@ -3,8 +3,6 @@ package by.crm.engineer
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -84,8 +82,10 @@ class FeedService : Service() {
                         since = ev.optLong("id", since)
                     }
                     prefs.edit().putLong("feed_id", since).apply()
-                    // световое уведомление: мигание фонариком (один раз на партию заявок)
-                    if (sawToday) NewRequestAlert.flash(this@FeedService)
+                    // монеты + вибрация + фонарик (один раз на партию сегодняшних заявок)
+                    if (sawToday) NewRequestAlert.alert(this@FeedService)
+                    // сообщить открытому экрану приложения, что список изменился
+                    sendBroadcast(Intent(ACTION_FEED_UPDATE).setPackage(packageName))
                 }
             } catch (e: Exception) {
                 sleep(15_000)
@@ -107,13 +107,11 @@ class FeedService : Service() {
             val coins = NotificationChannel(CHANNEL_NEW, "Новая заявка (звон монет)",
                 NotificationManager.IMPORTANCE_HIGH)
             coins.description = "Звон монет и мигание фонарика при поступлении новой заявки"
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            coins.setSound(Uri.parse("android.resource://$packageName/${R.raw.new_request_coins}"), attrs)
-            coins.enableVibration(true)
-            coins.vibrationPattern = longArrayOf(0, 150, 110, 150)
+            // Звук и вибрацию включаем сами (NewRequestAlert.alert) — так слышно
+            // на любых устройствах, даже без разрешения на уведомления.
+            // Канал — беззвучный, чтобы не было двойного звучания.
+            coins.setSound(null, null)
+            coins.enableVibration(false)
             coins.enableLights(true)
             coins.lightColor = 0xFFFFC24A.toInt()
             mgr.createNotificationChannel(coins)
@@ -151,6 +149,8 @@ class FeedService : Service() {
     companion object {
         private const val CHANNEL_ID = "crm_tasks"
         private const val CHANNEL_NEW = "crm_tasks_coins"
+        /** Экран приложения перезагружает список, получив этот broadcast. */
+        const val ACTION_FEED_UPDATE = "by.crm.engineer.FEED_UPDATE"
         private const val NOTIFICATION_ID = 1001
 
         fun start(ctx: Context) {

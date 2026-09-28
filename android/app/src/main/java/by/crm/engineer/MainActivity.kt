@@ -1,13 +1,20 @@
 package by.crm.engineer
 
+import android.Manifest
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
@@ -30,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deliveryAdapter: DeliveryAdapter
     private var day: String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
     private var tasks: MutableList<Task> = mutableListOf()
+    private var feedReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +92,28 @@ class MainActivity : AppCompatActivity() {
         }
         FeedService.start(this)
         checkUpdates(false)     // обновления проверяем сами: сборки публикуются на GitHub
+
+        // Android 13+: без разрешения уведомления не показываются вовсе — попросим
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+
+        // открытый экран сам обновляется, когда сервис получил новые события
+        feedReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                if (api.token.isNotEmpty() &&
+                    findViewById<LinearLayout>(R.id.mainPanel).visibility == View.VISIBLE) refresh()
+            }
+        }
+        ContextCompat.registerReceiver(this, feedReceiver!!,
+            IntentFilter(FeedService.ACTION_FEED_UPDATE), ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onDestroy() {
+        feedReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) { } }
+        feedReceiver = null
+        super.onDestroy()
     }
 
     // ------------------------------------------------------------- обновления

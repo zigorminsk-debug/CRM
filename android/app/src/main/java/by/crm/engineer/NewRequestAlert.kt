@@ -3,18 +3,69 @@ package by.crm.engineer
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Световое уведомление о новой заявке: мигание фонариком (факел основной камеры).
- * Звон монет играет сам канал уведомлений (res/raw/new_request_coins.ogg),
- * поэтому здесь — только фонарик. Фонарик без звука сработает даже при
- * выключенной громкости уведомлений.
+ * Комплексное уведомление о новой заявке на сегодня:
+ *   1) звон монет — MediaPlayer прямо из сервиса (гарантированно слышно
+ *      независимо от настроек каналов уведомлений и разрешения на уведомления);
+ *   2) вибрация — короткий двойной импульс;
+ *   3) мигание фонариком (факел основной камеры).
+ * Всё вместе не чаще одного раза в 4 секунды.
  */
 object NewRequestAlert {
 
+    private val lastAlert = AtomicLong(0L)
     private val lastFlash = AtomicLong(0L)
+
+    /** Звон монет + вибрация + вспышки фонарика. */
+    fun alert(context: Context) {
+        val now = System.currentTimeMillis()
+        val prev = lastAlert.get()
+        if (now - prev < 4000) return
+        if (!lastAlert.compareAndSet(prev, now)) return
+        playCoins(context)
+        vibrate(context)
+        flash(context)
+    }
+
+    /** Звон монет из res/raw (медиаплеер с уведомительными атрибутами громкости). */
+    private fun playCoins(context: Context) {
+        try {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val mp = MediaPlayer.create(context, R.raw.new_request_coins, attrs, 0)
+            if (mp != null) {
+                mp.setOnCompletionListener { it.release() }
+                mp.start()
+            }
+        } catch (e: Exception) {
+            // звук не критичен — тишина лучше падения сервиса
+        }
+    }
+
+    /** Двойной виброимпульс. */
+    private fun vibrate(context: Context) {
+        try {
+            val vib: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            vib?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 150, 110, 150), -1))
+        } catch (e: Exception) {
+            // нет вибромотора — не страшно
+        }
+    }
 
     /** Серия из 6 вспышек (~1,6 с); не чаще одного раза в 4 секунды. */
     fun flash(context: Context) {
