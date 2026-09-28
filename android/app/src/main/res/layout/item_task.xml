@@ -43,19 +43,19 @@
             android:textColor="#FFFFFF"
             android:textSize="11sp" />
 
-    </LinearLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
-    <!-- ETA на отдельной строке, выровнен вправо — не обрезается краем экрана -->
-    <TextView
-        android:id="@+id/itemEta"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:gravity="end"
-        android:maxLines="1"
-        android:textColor="@color/accent"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        <TextView
+            android:id="@+id/itemEta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/accent"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/itemWork"
@@ -100,27 +100,15 @@
 
         <Button
             android:id="@+id/btnGo"
-            android:minWidth="0dp"
-            android:paddingLeft="4dp"
-            android:paddingRight="4dp"
-            android:maxLines="1"
-            android:textAllCaps="false"
-            android:textSize="12sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.4"
+            android:layout_weight="2"
             android:backgroundTint="@color/accent"
             android:text="🚗 Поехали"
             android:textColor="#FFFFFF" />
 
         <Button
             android:id="@+id/btnDetails"
-            android:minWidth="0dp"
-            android:paddingLeft="4dp"
-            android:paddingRight="4dp"
-            android:maxLines="1"
-            android:textAllCaps="false"
-            android:textSize="12sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -128,12 +116,6 @@
 
         <Button
             android:id="@+id/btnPostpone"
-            android:minWidth="0dp"
-            android:paddingLeft="4dp"
-            android:paddingRight="4dp"
-            android:maxLines="1"
-            android:textAllCaps="false"
-            android:textSize="12sp"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"

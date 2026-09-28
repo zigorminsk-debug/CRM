@@ -3,6 +3,8 @@ package by.crm.engineer
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -25,7 +27,7 @@ class FeedService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!running) {
             running = true
-            startForeground(NOTIFICATION_ID, buildNotification("Обмен с сервером", "Ожидание новых заявок"))
+            startForeground(NOTIFICATION_ID, buildNotification("Обмен с сервером", "Ожидание новых заявок", CHANNEL_ID))
             thread = Thread { loop() }.also { it.start() }
         }
         return START_STICKY
@@ -43,6 +45,7 @@ class FeedService : Service() {
                 val res: JSONObject = api.feed(since, 25)
                 val events = res.optJSONArray("events")
                 if (events != null && events.length() > 0) {
+                    var sawNew = false
                     for (i in 0 until events.length()) {
                         val ev = events.getJSONObject(i)
                         val kind = ev.optString("kind")
@@ -56,10 +59,14 @@ class FeedService : Service() {
                         } ?: continue
                         val body = listOf(payload.optString("number"), payload.optString("address"),
                                           payload.optString("priority")).filter { it.isNotBlank() }.joinToString(" · ")
-                        notify(title, body)
+                        // Новая заявка — канал со звоном монет; остальное — обычный канал
+                        notify(title, body, if (kind == "task.new") CHANNEL_NEW else CHANNEL_ID)
+                        if (kind == "task.new") sawNew = true
                         since = ev.optLong("id", since)
                     }
                     prefs.edit().putLong("feed_id", since).apply()
+                    // световое уведомление: мигание фонариком (один раз на партию заявок)
+                    if (sawNew) NewRequestAlert.flash(this@FeedService)
                 }
             } catch (e: Exception) {
                 sleep(15_000)
@@ -75,14 +82,30 @@ class FeedService : Service() {
             val ch = NotificationChannel(CHANNEL_ID, "Заявки инженеру", NotificationManager.IMPORTANCE_HIGH)
             ch.description = "Новые заявки, переносы, передача зон на время отпуска"
             mgr.createNotificationChannel(ch)
+
+            // Канал новой заявки: звук — звон монет в кассу
+            // (Kenney RPG Audio «handleCoins», лицензия CC0, см. tools/coin_sound/)
+            val coins = NotificationChannel(CHANNEL_NEW, "Новая заявка (звон монет)",
+                NotificationManager.IMPORTANCE_HIGH)
+            coins.description = "Звон монет и мигание фонарика при поступлении новой заявки"
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            coins.setSound(Uri.parse("android.resource://$packageName/${R.raw.new_request_coins}"), attrs)
+            coins.enableVibration(true)
+            coins.vibrationPattern = longArrayOf(0, 150, 110, 150)
+            coins.enableLights(true)
+            coins.lightColor = 0xFFFFC24A.toInt()
+            mgr.createNotificationChannel(coins)
         }
     }
 
-    private fun buildNotification(title: String, body: String): Notification {
+    private fun buildNotification(title: String, body: String, channelId: String): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pi = PendingIntent.getActivity(this, 0, intent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle(title)
             .setContentText(body)
@@ -93,9 +116,9 @@ class FeedService : Service() {
             .build()
     }
 
-    private fun notify(title: String, body: String) {
+    private fun notify(title: String, body: String, channelId: String = CHANNEL_ID) {
         val mgr = getSystemService(NotificationManager::class.java)
-        mgr.notify(System.currentTimeMillis().toInt() and 0xFFFF, buildNotification(title, body))
+        mgr.notify(System.currentTimeMillis().toInt() and 0xFFFF, buildNotification(title, body, channelId))
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -108,6 +131,7 @@ class FeedService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "crm_tasks"
+        private const val CHANNEL_NEW = "crm_tasks_coins"
         private const val NOTIFICATION_ID = 1001
 
         fun start(ctx: Context) {

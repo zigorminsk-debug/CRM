@@ -66,17 +66,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:backgroundTint="@color/accent"
-                android:text="@string/login_button"
+                android:text="Войти и получить заявки"
                 android:textColor="#FFFFFF" />
-
-            <Button
-                android:id="@+id/checkButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:backgroundTint="@color/panel2"
-                android:text="@string/check_button"
-                android:textColor="@color/text" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -85,14 +76,6 @@
                 android:text="Демо-доступ: engineer / engineer123 (создаётся сервером при первом запуске)"
                 android:textColor="@color/muted"
                 android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/versionLabel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="@color/muted"
-                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- ===== маршрут ===== -->
@@ -102,94 +85,58 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Шапка в две строки: слева текст с layout_weight=1 (занять всё
-                 свободное место и не сжаться), справа кнопки. У кнопок AppCompat
-                 minWidth по умолчанию ~88dp — четыре кнопки съедали всю строку,
-                 и имя переносилось по 2 буквы. Поэтому у всех кнопок minWidth=0dp. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/engineerName"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:maxLines="2"
-                        android:ellipsize="end"
-                        android:text="Инженер"
-                        android:textColor="@color/primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/logoutButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:minWidth="0dp"
-                        android:paddingLeft="12dp"
-                        android:paddingRight="12dp"
-                        android:text="Выход"
-                        android:textAllCaps="true"
-                        android:textSize="13sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                        android:text="Инженер"
+                        android:textColor="@color/primary"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/routeMeta"
-                        android:layout_width="0dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:maxLines="2"
-                        android:ellipsize="end"
                         android:textColor="@color/muted"
                         android:textSize="13sp" />
-
-                    <Button
-                        android:id="@+id/dayButton"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:layout_marginStart="8dp"
-                        android:minWidth="0dp"
-                        android:padding="0dp"
-                        android:text="&#128197;"
-                        android:textSize="18sp"
-                        android:contentDescription="Выбрать дату маршрута" />
-
-                    <Button
-                        android:id="@+id/refreshButton"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:layout_marginStart="6dp"
-                        android:minWidth="0dp"
-                        android:padding="0dp"
-                        android:text="&#8635;"
-                        android:textSize="16sp" />
-
-                    <Button
-                        android:id="@+id/updateButton"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:layout_marginStart="6dp"
-                        android:minWidth="0dp"
-                        android:padding="0dp"
-                        android:text="&#8681;"
-                        android:textSize="16sp" />
                 </LinearLayout>
+
+                <Button
+                    android:id="@+id/dayButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="День" />
+
+                <Button
+                    android:id="@+id/refreshButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⟳" />
+
+                <Button
+                    android:id="@+id/updateButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⇩" />
+
+                <Button
+                    android:id="@+id/logoutButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Выход" />
             </LinearLayout>
 
             <TextView
@@ -242,40 +189,14 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp" />
 
-            <LinearLayout
+            <Button
+                android:id="@+id/routeAllButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/routeAllButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:minWidth="0dp"
-                    android:maxLines="1"
-                    android:textAllCaps="false"
-                    android:textSize="13sp"
-                    android:backgroundTint="@color/primary"
-                    android:ellipsize="end"
-                    android:text="Маршрут в Картах"
-                    android:textColor="#FFFFFF" />
-
-                <Button
-                    android:id="@+id/historyButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:minWidth="0dp"
-                    android:maxLines="1"
-                    android:textAllCaps="false"
-                    android:textSize="13sp"
-                    android:backgroundTint="@color/panel2"
-                    android:text="История"
-                    android:textColor="@color/text" />
-            </LinearLayout>
+                android:backgroundTint="@color/primary"
+                android:text="Весь маршрут в Яндекс.Картах"
+                android:textColor="#FFFFFF" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

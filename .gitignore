@@ -33,12 +33,3 @@ android/captures/
 .DS_Store
 Thumbs.db
 *.swp
-
-# Сборка сервера в exe (PyInstaller)
-server/build/
-server/dist/
-
-# Журнал ошибок запуска CRM-Server.exe
-crm-server-error.txt
-server/data/port.txt
-clientapp/dist/

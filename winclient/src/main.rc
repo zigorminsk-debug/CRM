@@ -3,11 +3,9 @@
 // Константы вписаны числами, чтобы файл собирался одним zig rc без заголовков MSVC:
 //   VOS_NT_WINDOWS32 = 0x00040004, VFT_APP = 1, VFT2_UNKNOWN = 0
 
-1 ICON "app.ico"
-
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION    1,0,0,15
- PRODUCTVERSION 1,0,0,15
+ FILEVERSION    1,0,0,3
+ PRODUCTVERSION 1,0,0,3
  FILEFLAGSMASK  0x3fL
  FILEFLAGS      0x0L
  FILEOS         0x00040004L
@@ -18,14 +16,14 @@ BEGIN
     BEGIN
         BLOCK "041904B0"
         BEGIN
-            VALUE "CompanyName",      "Cartridge Engineer"
-            VALUE "FileDescription",  "Cartridge Engineer — приём заявок на заправку картриджей и ремонт оргтехники"
-            VALUE "FileVersion",      "1.0.15"
-            VALUE "InternalName",     "Cartridge Engineer"
-            VALUE "LegalCopyright",   "© Cartridge Engineer"
+            VALUE "CompanyName",      "CRM Kartridzh"
+            VALUE "FileDescription",  "CRM — приём заявок на заправку картриджей и ремонт оргтехники"
+            VALUE "FileVersion",      "1.0.3"
+            VALUE "InternalName",     "CRM-Windows"
+            VALUE "LegalCopyright",   "© CRM Kartridzh"
             VALUE "OriginalFilename", "CRM-Windows.exe"
-            VALUE "ProductName",      "Cartridge Engineer"
-            VALUE "ProductVersion",   "1.0.15"
+            VALUE "ProductName",      "CRM Windows Client"
+            VALUE "ProductVersion",   "1.0.3"
         END
     END
     BLOCK "VarFileInfo"

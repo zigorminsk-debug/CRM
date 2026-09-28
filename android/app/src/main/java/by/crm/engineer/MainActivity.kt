@@ -37,12 +37,7 @@ class MainActivity : AppCompatActivity() {
         api = Api(this)
 
         findViewById<EditText>(R.id.serverEdit).setText(api.base)
-        try {
-            val pInfo = packageManager.getPackageInfo(packageName, 0)
-            findViewById<TextView>(R.id.versionLabel).text = "Версия приложения: " + pInfo.versionName
-        } catch (_: Exception) { }
         findViewById<Button>(R.id.loginButton).setOnClickListener { doLogin() }
-        findViewById<Button>(R.id.checkButton).setOnClickListener { doCheck() }
         findViewById<Button>(R.id.logoutButton).setOnClickListener {
             api.token = ""
             showLogin(true)
@@ -50,7 +45,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.refreshButton).setOnClickListener { refresh() }
         findViewById<Button>(R.id.dayButton).setOnClickListener { pickDay() }
         findViewById<Button>(R.id.routeAllButton).setOnClickListener { openFullRoute() }
-        findViewById<Button>(R.id.historyButton).setOnClickListener { showHistory() }
         findViewById<Button>(R.id.updateButton).setOnClickListener { checkUpdates(true) }
 
         taskAdapter = TaskAdapter(
@@ -106,43 +100,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** История: исполненные заявки инженера (done/closed), свежие сверху. */
-    private fun showHistory() {
-        apiCall({
-            val res = try { api.history() } catch (e: Exception) {
-                runOnUiThread { toast("Сервер недоступен: ${e.message}") }
-                return@apiCall
-            }
-            val arr = res.optJSONArray("items") ?: org.json.JSONArray()
-            val sb = StringBuilder()
-            var n = 0
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val done = o.optString("done_at")
-                val d = if (done.length >= 10) done.substring(0, 10) else o.optString("planned_date")
-                val sub = listOf(o.optString("work_name"), o.optString("address"))
-                    .filter { it.isNotBlank() }.joinToString(" · ")
-                sb.append(o.optString("number")).append(" · ")
-                    .append(o.optString("status_label")).append(" · ").append(d).append('\n')
-                if (sub.isNotBlank()) sb.append(sub).append('\n')
-                sb.append('\n')
-                n++
-                if (n >= 60) { sb.append("… показаны последние 60 из ${arr.length()}"); break }
-            }
-            val text = if (n == 0) "Исполненных заявок пока нет." else sb.toString().trim()
-            runOnUiThread {
-                try {
-                    AlertDialog.Builder(this)
-                        .setTitle(if (n == 0) "История" else "Исполненные заявки: $n")
-                        .setMessage(text)
-                        .setPositiveButton("Закрыть", null).show()
-                } catch (e: Exception) {
-                    toast(text.substring(0, minOf(300, text.length)))
-                }
-            }
-        })
-    }
-
     override fun onResume() {
         super.onResume()
         if (api.token.isNotEmpty() && findViewById<LinearLayout>(R.id.mainPanel).visibility == View.VISIBLE) refresh()
@@ -153,55 +110,20 @@ class MainActivity : AppCompatActivity() {
         val server = findViewById<EditText>(R.id.serverEdit).text.toString()
         val user = findViewById<EditText>(R.id.userEdit).text.toString()
         val pass = findViewById<EditText>(R.id.passEdit).text.toString()
-        if (server.isBlank()) {
-            toast("Укажите адрес сервера (например, http://192.168.1.35:8000)")
-            return
-        }
         if (user.isBlank() || pass.isBlank()) {
             toast("Укажите логин и пароль")
             return
         }
-        val btn = findViewById<Button>(R.id.loginButton)
         api.saveServer(server)
-        btn.isEnabled = false
-        btn.text = "Вхожу…"
+        findViewById<Button>(R.id.loginButton).isEnabled = false
         apiCall({
             val res = api.login(user, pass)
             runOnUiThread {
-                btn.isEnabled = true
-                btn.text = getString(R.string.login_button)
+                findViewById<Button>(R.id.loginButton).isEnabled = true
                 toast("Вход выполнен: " + res.optString("full_name"))
                 showLogin(false)
             }
             refresh()
-        }, onError = {
-            // Кнопка обязана оживать при ЛЮБОЙ ошибке (адрес, сеть, пароль),
-            // иначе после первой же неудачи вход блокируется навсегда.
-            btn.isEnabled = true
-            btn.text = getString(R.string.login_button)
-        })
-    }
-
-    /**
-     * Диагностика без попытки входа: доступен ли сервер по указанному адресу.
-     * Отделяет сетевые проблемы (брандмауэр, Wi-Fi, адрес) от ошибок логина.
-     */
-    private fun doCheck() {
-        val server = findViewById<EditText>(R.id.serverEdit).text.toString()
-        if (server.isBlank()) {
-            toast("Укажите адрес сервера")
-            return
-        }
-        api.saveServer(server)
-        toast("Проверяю " + server.trim() + " …")
-        apiCall({
-            val h = api.health()
-            runOnUiThread {
-                val zones = h.optInt("zone_count", -1)
-                toast("Сервер отвечает, версия " + h.optString("version") +
-                      (if (zones >= 0) ", зон: " + zones else "") +
-                      ". Теперь вход должен пройти.")
-            }
         })
     }
 
@@ -243,16 +165,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pickDay() {
-        val cal = java.util.Calendar.getInstance()
-        try {
-            val parts = day.split("-").map { it.toInt() }
-            if (parts.size == 3) cal.set(parts[0], parts[1] - 1, parts[2])
-        } catch (_: Exception) { }
-        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
-            day = String.format("%04d-%02d-%02d", y, m + 1, dOfM)
-            refresh()
-        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_DATETIME
+            setText(day)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Маршрут на дату (ГГГГ-ММ-ДД)")
+            .setView(input)
+            .setPositiveButton("Показать") { _, _ ->
+                day = input.text.toString().trim().ifBlank { day }
+                refresh()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun openFullRoute() {
@@ -290,123 +215,87 @@ class MainActivity : AppCompatActivity() {
                 val comment = input.text.toString().ifBlank {
                     if (onsite) "Работы выполнены, заказчик принял" else "Картридж/оборудование забираем в офис"
                 }
-                apiCall({ api.done(task.id, result, comment) },
-                    onOk = {
-                        // сразу убираем заявку из маршрута, даже если обновление не пройдёт
-                        tasks = tasks.filter { it.id != task.id }.toMutableList()
-                        taskAdapter.submit(tasks)
-                        findViewById<TextView>(R.id.emptyHint).visibility =
-                            if (tasks.isEmpty()) View.VISIBLE else View.GONE
-                        refresh()
-                        if (onsite) {
-                            toast("Отмечено: выполнено на месте")
-                        } else {
-                            AlertDialog.Builder(this)
-                                .setTitle("Забор оформлен")
-                                .setMessage("Сервер поставил доставку заказчику на следующий рабочий день.\n" +
-                                        "Если оборудование не готово, дату можно перенести в разделе «Доставка заказчикам».")
-                                .setPositiveButton("Понятно", null)
-                                .show()
-                        }
-                    },
-                    onError = { taskAdapter.notifyDataSetChanged() })
+                apiCall({ api.done(task.id, result, comment) }) {
+                    refresh()
+                    if (onsite) {
+                        toast("Отмечено: выполнено на месте")
+                    } else {
+                        AlertDialog.Builder(this)
+                            .setTitle("Забор оформлен")
+                            .setMessage("Сервер поставил доставку заказчику на следующий рабочий день.\n" +
+                                    "Если оборудование не готово, дату можно перенести в разделе «Доставка заказчикам».")
+                            .setPositiveButton("Понятно", null)
+                            .show()
+                    }
+                }
             }
             .setNegativeButton("Отмена", null)
             .show()
     }
 
     private fun postponeDialog(task: Task) {
-        val cal = java.util.Calendar.getInstance()
-        try {
-            val parts = day.split("-").map { it.toInt() }
-            if (parts.size == 3) cal.set(parts[0], parts[1] - 1, parts[2])
-        } catch (_: Exception) { }
-        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
-            val nd = String.format("%04d-%02d-%02d", y, m + 1, dOfM)
-            apiCall({ api.postponeTask(task.id, nd, "Перенос из мобильного приложения") }) {
-                toast("Заявка перенесена на $nd")
-                refresh()
+        val input = EditText(this).apply { setText(day) }
+        AlertDialog.Builder(this)
+            .setTitle("Перенести заявку на дату (ГГГГ-ММ-ДД)")
+            .setView(input)
+            .setPositiveButton("Перенести") { _, _ ->
+                apiCall({ api.postponeTask(task.id, input.text.toString().trim(), "Перенос из мобильного приложения") }) {
+                    toast("Заявка перенесена")
+                    refresh()
+                }
             }
-        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun postponeDeliveryDialog(d: Delivery) {
-        val cal = java.util.Calendar.getInstance()
-        try {
-            val p = d.scheduledDate.split("-").map { it.toInt() }
-            if (p.size == 3) cal.set(p[0], p[1] - 1, p[2])
-        } catch (_: Exception) { }
-        android.app.DatePickerDialog(this, { _, y, m, dOfM ->
-            val picked = java.util.Calendar.getInstance().apply { set(y, m, dOfM) }
-            // сколько РАБОЧИХ дней между текущей датой доставки и выбранной
-            var days = 0
-            val cur = cal.clone() as java.util.Calendar
-            while (cur.before(picked)) {
-                cur.add(java.util.Calendar.DAY_OF_MONTH, 1)
-                val dow = cur.get(java.util.Calendar.DAY_OF_WEEK)
-                if (dow != java.util.Calendar.SATURDAY && dow != java.util.Calendar.SUNDAY) days++
+        val input = EditText(this).apply { hint = "Что не готово?" }
+        AlertDialog.Builder(this)
+            .setTitle("Перенести доставку на следующий рабочий день")
+            .setView(input)
+            .setPositiveButton("Перенести") { _, _ ->
+                apiCall({ api.deliveryPostpone(d.id, 1, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
+                    toast("Перенесено")
+                    refresh()
+                }
             }
-            if (days < 1) {
-                toast("Выберите дату позже текущей (${d.scheduledDate})")
-            } else {
-                val title = String.format("Перенести на %04d-%02d-%02d", y, m + 1, dOfM)
-                val input = EditText(this).apply { hint = "Что не готово?" }
-                AlertDialog.Builder(this)
-                    .setTitle(title)
-                    .setView(input)
-                    .setPositiveButton("Перенести") { _, _ ->
-                        apiCall({ api.deliveryPostpone(d.id, days, input.text.toString().ifBlank { "Оборудование не готово" }) }) {
-                            toast("Доставка перенесена")
-                            refresh()
-                        }
-                    }
-                    .setNegativeButton("Отмена", null)
-                    .show()
-            }
-        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
-            cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     // ------------------------------------------------------------------ детали
     private fun showDetails(t: Task) {
-        val html = buildString {
-            append("Контрагент: ${t.contractor}<br>")
-            append("Контактное лицо: ${t.contact}<br>")
-            if (t.phone.isNotBlank()) {
-                val p = t.phone.replace(Regex("[^+0-9]"), "")
-                append("Телефон: <a href=\"tel:$p\"><b>${t.phone}</b></a><br>")
-            }
-            append("Работа: ${t.work}<br>")
-            append("Срочность: ${t.priorityLabel}<br>")
-            append("Статус: ${t.statusLabel}<br>")
-            if (t.timeWindow.isNotBlank()) append("Окно визита: ${t.timeWindow}<br>")
-            if (t.zone.isNotBlank()) append("Район: ${t.zone}<br>")
-            append("Адрес: ${t.address}<br>")
-            if (t.equipment.isNotBlank()) append("Оборудование: ${t.equipment} ${t.serial}<br>")
-            if (t.plannedDate.isNotBlank()) append("Плановая дата: ${t.plannedDate}<br>")
-            if (t.comment.isNotBlank()) append("<br>Пояснение: ${t.comment}")
+        val text = buildString {
+            append("Контрагент: ${t.contractor}\n")
+            append("Контактное лицо: ${t.contact}\n")
+            append("Телефон: ${t.phone}\n")
+            append("Работа: ${t.work}\n")
+            append("Срочность: ${t.priorityLabel}\n")
+            append("Статус: ${t.statusLabel}\n")
+            if (t.zone.isNotBlank()) append("Район: ${t.zone}\n")
+            append("Адрес: ${t.address}\n")
+            if (t.equipment.isNotBlank()) append("Оборудование: ${t.equipment} ${t.serial}\n")
+            if (t.plannedDate.isNotBlank()) append("Плановая дата: ${t.plannedDate}\n")
+            if (t.comment.isNotBlank()) append("\nПояснение: ${t.comment}")
         }
-        val dlg = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("${t.number} — ${t.work}")
-            .setMessage(android.text.Html.fromHtml(html.toString(), android.text.Html.FROM_HTML_MODE_LEGACY))
+            .setMessage(text)
             .setPositiveButton("Поехали") { _, _ -> go(t) }
+            .setNeutralButton("Позвонить") { _, _ ->
+                startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${t.phone.replace(" ", "")}")))
+            }
             .setNegativeButton("Закрыть", null)
             .show()
-        // телефон в тексте кликабелен: открывается штатная звонилка
-        dlg.findViewById<TextView>(android.R.id.message)?.movementMethod =
-            android.text.method.LinkMovementMethod.getInstance()
     }
 
     // --------------------------------------------------------- многопоточность
-    private fun apiCall(work: () -> Unit, silent: Boolean = false, onOk: (() -> Unit)? = null,
-                        onError: (() -> Unit)? = null) {
+    private fun apiCall(work: () -> Unit, silent: Boolean = false, onOk: (() -> Unit)? = null) {
         Thread {
             try {
                 work()
                 if (onOk != null) runOnUiThread(onOk)
             } catch (e: Exception) {
-                if (onError != null) runOnUiThread(onError)
                 if (!silent) runOnUiThread { toast("Ошибка: ${e.message}") }
             }
         }.start()
