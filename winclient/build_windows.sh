@@ -24,7 +24,7 @@ mkdir -p dist
 MODE="${1:-auto}"
 OUT="${OUT:-dist/CRM-Windows.exe}"
 SRC="src/main_win.cpp src/api.cpp src/validate.cpp src/hash.cpp src/http_win.cpp"
-LIBS="-lwinhttp -lcomctl32 -lgdi32 -luser32 -lshell32 -lole32 -luuid"
+LIBS="-lwinhttp -lcomctl32 -lgdi32 -luser32 -lshell32 -lole32 -luuid -ladvapi32"
 FLAGS="-std=c++17 -O2 -DUNICODE -D_UNICODE -Wl,--subsystem,windows -Wl,-s"
 
 # ---------------------------------------------------------------- версия сборки

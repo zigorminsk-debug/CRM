@@ -13,6 +13,7 @@ import logging
 import os
 import queue
 import socket
+import sys
 import threading
 import traceback
 import webbrowser
@@ -22,6 +23,68 @@ from tkinter import ttk
 import uvicorn
 
 from app import _runtime
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VAL_SERVER = "CartridgeEngineerServer"
+
+
+def _exe_path() -> str:
+    """Путь к CRM-Server.exe (для автозапуска в реестре)."""
+    if getattr(sys, "frozen", False):
+        return sys.executable
+    return ""
+
+
+def autostart_enabled() -> bool:
+    if os.name != "nt" or not _exe_path():
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, RUN_VAL_SERVER)
+            return True
+    except OSError:
+        return False
+
+
+def autostart_set(on: bool) -> bool:
+    """Автозапуск сервера вместе с Windows (HKCU Run)."""
+    if os.name != "nt" or not _exe_path():
+        return False
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            if on:
+                winreg.SetValueEx(k, RUN_VAL_SERVER, 0, winreg.REG_SZ, f'"{_exe_path()}"')
+            else:
+                try:
+                    winreg.DeleteValue(k, RUN_VAL_SERVER)
+                except FileNotFoundError:
+                    pass
+        return True
+    except OSError:
+        return False
+
+
+def save_port(port: int) -> None:
+    """Запомнить порт: при следующем запуске сервер подхватит его сам."""
+    _runtime.save_port(port)
+
+
+def load_saved_port() -> int | None:
+    return _runtime.load_saved_port()
+
+
+def shift_pressed() -> bool:
+    """True, если при запуске удерживали Shift — открыть настройки, не стартовать."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+    except Exception:
+        return False
+
 
 COLOR_RUN = "#0a7d26"      # зелёный
 COLOR_BUSY = "#b00020"     # красный
@@ -47,10 +110,11 @@ class _QueueHandler(logging.Handler):
 class ControlPanel:
     """Окно: порт, запуск/остановка, браузер, адреса и журнал."""
 
-    def __init__(self, root: tk.Tk, host: str, port: int) -> None:
+    def __init__(self, root: tk.Tk, host: str, port: int, auto_start: bool = True) -> None:
         self.root = root
         self.host = host
         self.initial_port = port
+        self.auto_start = auto_start
         self.q: "queue.SimpleQueue[str]" = queue.SimpleQueue()
         self.log_handler = _QueueHandler(self.q)
         self.server: uvicorn.Server | None = None
@@ -62,7 +126,10 @@ class ControlPanel:
         self._build()
         self._attach_logging()
         self.root.after(400, self._poll)
-        self.root.after(300, self.start)   # автозапуск при открытии окна
+        if auto_start:
+            self.root.after(300, self.start)   # автозапуск при открытии окна
+        else:
+            self._set_status("Настройки: проверьте порт и нажмите «Запустить»", COLOR_WAIT)
 
     # ------------------------------------------------------------ интерфейс
     def _build(self) -> None:
@@ -101,6 +168,9 @@ class ControlPanel:
         if os.name == "nt":
             self.btn_fw = ttk.Button(row, text="Разрешить в брандмауэре", command=self.allow_firewall)
             self.btn_fw.pack(side="left", padx=(4, 0))
+            self.btn_auto = ttk.Button(row, command=self.toggle_autostart)
+            self.btn_auto.pack(side="left", padx=(4, 0))
+            self._refresh_autostart_btn()
 
         self.addr_var = tk.StringVar(value="")
         tk.Label(top, textvariable=self.addr_var, justify="left", fg="#333333").pack(anchor="w")
@@ -177,6 +247,7 @@ class ControlPanel:
         self.announced = False
         self.expect_running = True
         self.thread.start()
+        save_port(port)
         self._set_status(f"Запускается на порту {port}…", COLOR_WAIT)
         self._toggle_buttons(running=True)
 
@@ -196,6 +267,21 @@ class ControlPanel:
     def open_browser(self) -> None:
         if self.announced and self.port:
             webbrowser.open(f"http://127.0.0.1:{self.port}/")
+
+    def _refresh_autostart_btn(self) -> None:
+        if not hasattr(self, "btn_auto"):
+            return
+        on = autostart_enabled()
+        self.btn_auto.configure(text="Автозапуск: вкл" if on else "Автозапуск: выкл")
+
+    def toggle_autostart(self) -> None:
+        if autostart_set(not autostart_enabled()):
+            self._refresh_autostart_btn()
+            self._log("Сервер будет запускаться вместе с Windows."
+                      if autostart_enabled() else
+                      "Автозапуск с Windows отключён.")
+        else:
+            self._log("Автозапуск доступен только в Windows-сборке (exe).")
 
     def allow_firewall(self) -> None:
         """Одной кнопкой открывает входящий порт в брандмауэре Windows
@@ -266,9 +352,13 @@ def run(host: str, port: int) -> bool:
     в консольный режим.
     """
     panel: ControlPanel | None = None
+    # запущен с нажатым Shift — открываем настройки, сервер сами НЕ стартуем
+    settings_only = shift_pressed()
     try:
         root = tk.Tk()
-        panel = ControlPanel(root, host, port)
+        panel = ControlPanel(root, host, port, auto_start=not settings_only)
+        if settings_only:
+            root.title(root.title() + " — НАСТРОЙКИ (Shift)")
         root.mainloop()
         return True
     except Exception:

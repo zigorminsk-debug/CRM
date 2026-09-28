@@ -40,6 +40,28 @@ def writable_dir(name: str) -> str:
     return path
 
 
+def port_file() -> str:
+    """data/port.txt рядом с exe — установщик и окно настроек сохраняют сюда порт."""
+    return os.path.join(writable_dir("data"), "port.txt")
+
+
+def save_port(port: int) -> None:
+    try:
+        with open(port_file(), "w", encoding="utf-8") as f:
+            f.write(str(int(port)))
+    except (OSError, ValueError):
+        pass
+
+
+def load_saved_port() -> int | None:
+    try:
+        with open(port_file(), encoding="utf-8") as f:
+            v = int(f.read().strip())
+        return v if 1 <= v <= 65535 else None
+    except (OSError, ValueError):
+        return None
+
+
 def local_ips() -> list[str]:
     """IP-адреса этого компьютера в локальной сети (без внешних библиотек)."""
     ips: list[str] = []

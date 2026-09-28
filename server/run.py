@@ -265,7 +265,12 @@ def _parse_and_setup() -> tuple[str, int, bool]:
     port = args.port or args.port_positional
     if port is None:
         env_port = os.environ.get("PORT", "").strip()
-        port = int(env_port) if env_port.isdigit() else 8000
+        port = int(env_port) if env_port.isdigit() else None
+    if port is None:
+        # установщик/окно настроек сохраняют порт в data\port.txt — подхватываем
+        port = _runtime.load_saved_port()
+    if port is None:
+        port = 8000
     port = int(port)
     no_gui = args.no_gui or os.environ.get("CRM_NO_GUI", "").strip().lower() in ("1", "true", "yes")
     return host, port, no_gui
