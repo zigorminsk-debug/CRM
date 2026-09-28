@@ -55,8 +55,8 @@ object NewRequestAlert {
     private fun playCoins(context: Context) {
         try {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setUsage(AudioAttributes.USAGE_ALARM)   // громкость будильника: не на нуле
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
             val mp = MediaPlayer.create(context, R.raw.new_request_coins, attrs, 0)
             if (mp != null) {

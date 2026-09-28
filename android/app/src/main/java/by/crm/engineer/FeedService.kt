@@ -19,6 +19,7 @@ class FeedService : Service() {
 
     private var thread: Thread? = null
     @Volatile private var running = false
+    private var lastBroadcast = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -97,7 +98,12 @@ class FeedService : Service() {
                     // монеты + вибрация + фонарик (один раз на партию сегодняшних заявок)
                     if (sawToday) NewRequestAlert.alert(this@FeedService)
                     // сообщить открытому экрану приложения, что список изменился
-                    sendBroadcast(Intent(ACTION_FEED_UPDATE).setPackage(packageName))
+                    // (не чаще раза в 3 с — защита от лишних перерисовок)
+                    val t = android.os.SystemClock.elapsedRealtime()
+                    if (t - lastBroadcast > 3000) {
+                        lastBroadcast = t
+                        sendBroadcast(Intent(ACTION_FEED_UPDATE).setPackage(packageName))
+                    }
                 }
             } catch (e: Exception) {
                 sleep(15_000)

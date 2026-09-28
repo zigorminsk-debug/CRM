@@ -129,6 +129,13 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 12)
         }
+        // диагностика: какая версия установлена и до какого события дочитана лента
+        val (vn, vc) = Updater.installedVersion(this)
+        val diag = TextView(this)
+        diag.text = "Версия: $vn (сборка $vc) · лента прочитана до id=${prefs.getLong("feed_id", 0L)}"
+        diag.textSize = 12f
+        diag.setTextColor(0xFF888888.toInt())
+        box.addView(diag)
         fun addSwitch(title: String, key: String) {
             val sw = Switch(this)
             sw.text = title
@@ -146,8 +153,8 @@ class MainActivity : AppCompatActivity() {
         box.addView(test)
 
         val hint = TextView(this)
-        hint.text = "Сигнал играет на громкости «Мультимедиа». Если не слышно — " +
-            "нажмите кнопку громкости на телефоне и поднимите ползунок «Мультимедиа»."
+        hint.text = "Сигнал играет на громкости «Будильник» (и вибрирует). Если не слышно — " +
+            "нажмите кнопку громкости и проверьте ползунок «Будильник»."
         hint.textSize = 13f
         hint.setPadding(0, 20, 0, 0)
         box.addView(hint)
@@ -219,6 +226,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (api.token.isNotEmpty() && findViewById<LinearLayout>(R.id.mainPanel).visibility == View.VISIBLE) refresh()
+        // проверять обновления при каждом открытии приложения (не чаще раза в 6 ч):
+        // процесс может жить днями — проверки только при запуске мало
+        val prefs = getSharedPreferences("crm", Context.MODE_PRIVATE)
+        if (System.currentTimeMillis() - prefs.getLong("update_last_check", 0L) > 6 * 3600_000L) {
+            checkUpdates(false)
+        }
     }
 
     // ------------------------------------------------------------------ вход
