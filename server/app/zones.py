@@ -116,11 +116,17 @@ def resolve_zone(lat: float | None, lon: float | None, district_text: str = "", 
     z = match_zone_by_district(district_text)
     if z:
         return z
+    z_text = match_zone_by_text(address)
+    # регион, явно названный в адресе («Минский район, аг. Колодищи»), важнее
+    # ближайшего центра города: пригородные точки (Колодищи, Боровляны) иначе
+    # уезжали в городские районы, до центров которых просто ближе
+    if z_text and z_text.get("kind") == "region":
+        return z_text
     if lat is not None and lon is not None:
         z = nearest_zone(lat, lon)
         if z:
             return z
-    return match_zone_by_text(address)
+    return z_text
 
 
 def nearest_zone(lat: float, lon: float, kind: str | None = None, max_km: float = 60.0) -> dict | None:

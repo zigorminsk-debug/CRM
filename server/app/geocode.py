@@ -79,6 +79,8 @@ _DESIGNATORS = (
     "бульвар", "б-р", "площадь", "пл", "проезд", "дом", "д", "корпус", "корп", "кв", "квартира",
     "аг", "агрогородок", "город", "г", "поселок", "посёлок", "п", "район", "р-н", "область", "обл",
     "микрорайон", "мкр",
+    # белорусские обозначения (справочник OSM приходит на белорусском)
+    "вуліца", "вул", "праспект", "завулак", "плошча", "шаша", "мястэчка", "сяло",
 )
 
 
@@ -89,11 +91,43 @@ def _norm(text: str) -> str:
     return t
 
 
+def _be2ru(t: str) -> str:
+    """Сближаем белорусское и русское написание: і→и, ў→у, ы→и, род.падеж
+    прилагательных -скага/-цкага -> -ского/-цкого. Работает для ОБЕИХ сторон,
+    поэтому ключи улиц сопоставляются независимо от языка адреса."""
+    t = t.replace("і", "и").replace("ў", "у").replace("ґ", "г").replace("ы", "и")
+    t = re.sub(r"(с|з|ц|ж|ч|ш)кага$", r"\1кого", t)
+    return t
+
+
 def street_key(name: str) -> str:
-    """«ул. Притыцкого» -> «притыцкого» (ключ для поиска)."""
+    """«ул. Притыцкого»/«вуліца Прытыцкага» -> общий ключ для поиска."""
     t = _norm(name)
     words = [w for w in t.split() if w not in _DESIGNATORS and len(w) > 2]
-    return " ".join(words)
+    return " ".join(_be2ru(w) for w in words)
+
+
+def _key_variants(token: str) -> set:
+    """Варианты гласных (е↔я, и↔ы) по всем позициям начала слова: связывает
+    «Дзержинского» (ru) с «Дзяржынскага» (be), «Притыцкого» с «Прытыцкага»."""
+    out = {token}
+    for a, b in (("е", "я"), ("я", "е"), ("и", "ы"), ("ы", "и")):
+        for t in list(out):
+            for i in range(min(8, len(t))):
+                if t[i] == a:
+                    out.add(t[:i] + b + t[i + 1:])
+    return out
+
+
+def _key_families(skey: str) -> list:
+    """Ключ улицы + варианты каждого слова по одному (для поиска домов)."""
+    words = skey.split()
+    out = [skey]
+    for i, w in enumerate(words):
+        for v in _key_variants(w):
+            if v != w:
+                out.append(" ".join(words[:i] + [v] + words[i + 1:]))
+    return out
 
 
 def load_street_index(csv_path: str | None = None) -> int:
@@ -104,9 +138,11 @@ def load_street_index(csv_path: str | None = None) -> int:
     # если индекс уже заполнен — ДОЗАГРУЖАЕМ только отсутствующие улицы:
     # новые строки CSV попадают и в существующие базы (иначе у улицы, добавленной
     # в справочник, нет шанса появиться у тех, кто уже пользуется сервером)
-    existing = {r["name"] for r in db.q("SELECT name FROM street_index")} if db.q1("SELECT 1 FROM street_index LIMIT 1") else set()
+    pre_existing = {r["name"] for r in db.q("SELECT name FROM street_index WHERE source='bundled'")}
+    existing = {r["name"] for r in db.q("SELECT name FROM street_index")} if pre_existing else set()
     mode = "upsert" if existing else "load"
     n = 0
+    file_names = set()
     with open(csv_path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -118,6 +154,7 @@ def load_street_index(csv_path: str | None = None) -> int:
             name, lat, lon = parts[0], parts[1], parts[2]
             district = parts[3] if len(parts) > 3 else None
             kind = parts[4] if len(parts) > 4 else "street"
+            file_names.add(name)
             if mode == "upsert":
                 if name in existing:
                     # у уже известной bundled-строки обновляем координаты:
@@ -141,6 +178,13 @@ def load_street_index(csv_path: str | None = None) -> int:
                 n += 1
             except (ValueError, TypeError):
                 continue
+    # справочник из поставки — источник истины: удаляем строки, которых
+    # больше нет в файле (например, улицы с неверными координатами из старых сборок)
+    stale = [name for name in pre_existing if name not in file_names]
+    for name in stale:
+        db.execute("DELETE FROM street_index WHERE name=? AND source='bundled'", (name,))
+    if stale:
+        db.audit("system", "street_index.pruned", {"rows": len(stale)})
     db.audit("system", "street_index.load", {"rows": n})
     return n
 
@@ -216,8 +260,10 @@ def house_lookup(street_key_val: str, house: str) -> dict | None:
     """Точный дом из индекса: сначала точный номер, потом совпадение по цифровой части."""
     if not street_key_val or not house:
         return None
-    rows = db.rows2dicts(db.q("SELECT house, lat, lon FROM house_index WHERE street_key=?",
-                              (street_key_val,)))
+    keys = _key_families(street_key_val)
+    ph = ",".join("?" * len(keys))
+    rows = db.rows2dicts(db.q(f"SELECT house, lat, lon FROM house_index WHERE street_key IN ({ph})",
+                              (*keys,)))
     if not rows:
         return None
     for r in rows:                                   # точное совпадение
@@ -296,11 +342,12 @@ def local_lookup(address: str) -> dict | None:
         # строка-город «Минск» никогда не даёт полезных координат минскому
         # адресу: раньше она получала бонус за «район Минск» и обгоняла улицу,
         # и весь адрес молча съезжал в центр города
-        if row["kind"] == "settlement" and key == "минск":
+        if row["kind"] == "settlement" and key in ("минск", "минск район"):
             continue
         words = key.split()
-        # совпадение только по целым словам: «Ленина» не должно ловиться на «Ленинградскую»
-        if not all(w in tokens for w in words):
+        # каждое слово ключа должно присутствовать в адресе (целиком),
+        # допускаем варианты гласных (ru <-> be написание: Дзержинского/Дзяржынскага)
+        if not all(w in tokens or any(v in tokens for v in _key_variants(w)) for w in words):
             continue
         score = len(key)
         if row["kind"] == "street":
