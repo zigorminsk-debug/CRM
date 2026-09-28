@@ -79,7 +79,19 @@ class FeedService : Service() {
                         // Сегодняшняя — канал со звоном монет; остальное — обычный канал
                         notify(title, body, if (isToday) CHANNEL_NEW else CHANNEL_ID)
                         if (isToday) sawToday = true
-                        since = ev.optLong("id", since)
+                    }
+                    // Позиция ленты — по ВСЕМ событиям (сервер отдаёт last_id).
+                    // Раньше since продвигался только для распознанных видов:
+                    // одно неизвестное событие (task.done) перечитывалось вечно,
+                    // экран бесконечно обновлялся и не отзывался на нажатия.
+                    val lastId = res.optLong("last_id", 0L)
+                    if (lastId > since) {
+                        since = lastId
+                    } else {
+                        for (i in 0 until events.length()) {
+                            val id = events.getJSONObject(i).optLong("id", 0L)
+                            if (id > since) since = id
+                        }
                     }
                     prefs.edit().putLong("feed_id", since).apply()
                     // монеты + вибрация + фонарик (один раз на партию сегодняшних заявок)

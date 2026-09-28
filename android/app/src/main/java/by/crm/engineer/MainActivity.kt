@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private var day: String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
     private var tasks: MutableList<Task> = mutableListOf()
     private var feedReceiver: BroadcastReceiver? = null
+    private var lastAutoRefresh = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +104,10 @@ class MainActivity : AppCompatActivity() {
         // открытый экран сам обновляется, когда сервис получил новые события
         feedReceiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, i: Intent?) {
+                // защита от шторма обновлений: не чаще раза в 2 секунды
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastAutoRefresh < 2000) return
+                lastAutoRefresh = now
                 if (api.token.isNotEmpty() &&
                     findViewById<LinearLayout>(R.id.mainPanel).visibility == View.VISIBLE) refresh()
             }
