@@ -311,7 +311,10 @@ class MainActivity : AppCompatActivity() {
             val darr = plan.optJSONArray("deliveries") ?: org.json.JSONArray()
             for (i in 0 until darr.length()) deliveries.add(Delivery.from(darr.getJSONObject(i)))
             val engineer = plan.optJSONObject("engineer")?.optString("full_name") ?: "Инженер"
-            val meta = "Заявок: ${list.size} · ${plan.optDouble("total_km")} км · ~${plan.optDouble("total_hours")} ч"
+            // пробег считается от стартовой точки маршрута (адрес офиса) через заявки по порядку
+            val startName = plan.optJSONObject("start")?.optString("name").orEmpty()
+            val meta = "Заявок: ${list.size} · пробег ${plan.optDouble("total_km")} км · ~${plan.optDouble("total_hours")} ч" +
+                if (startName.isNotBlank()) " · старт: $startName" else ""
             val shownDay = plan.optString("day", day)
             runOnUiThread {
                 tasks = list
@@ -342,12 +345,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openFullRoute() {
-        val points = tasks.filter { it.hasCoords }.map { "${it.lat},${it.lon}" }
-        if (points.isEmpty()) {
+        val stops = tasks.filter { it.hasCoords }
+        if (stops.isEmpty()) {
             toast("В маршруте нет заявок с координатами")
             return
         }
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://yandex.ru/maps/?rtext=" + points.joinToString("~") + "&rtt=auto")))
+        // Яндекс.Навигатор: маршрут ОТ ТЕКУЩЕГО МЕСТА через все заявки по порядку:
+        // промежуточные точки via_0..via_n-1, последняя заявка — назначение.
+        val last = stops.last()
+        val sb = StringBuilder("yandexnavi://build_route_on_map?lat_to=${last.lat}&lon_to=${last.lon}")
+        stops.dropLast(1).forEachIndexed { i, t ->
+            sb.append("&via_$i=").append(Uri.encode("${t.lat},${t.lon}"))
+        }
+        val fallback = "https://yandex.ru/maps/?rtext=" + stops.joinToString("~") { "${it.lat},${it.lon}" } + "&rtt=auto"
+        openNavigatorUrl(sb.toString(), fallback)
     }
 
     // ------------------------------------------------------------- «Поехали»
