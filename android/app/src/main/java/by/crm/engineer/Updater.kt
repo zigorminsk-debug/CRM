@@ -31,6 +31,8 @@ object Updater {
     private const val TAG = "CRM-Updater"
     private const val PREFS = "crm"
     private const val LAST_CHECK = "update_last_check"
+    private const val GITHUB_MANIFEST =
+        "https://github.com/zigorminsk-debug/CRM/releases/latest/download/update.json"
 
     data class Info(
         val version: String,
@@ -61,6 +63,21 @@ object Updater {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("server", "http://10.0.2.2:8000")!!.trimEnd('/')
 
+    private fun parseInfo(latest: JSONObject, fromGithub: Boolean): Info? {
+        val apk = latest.optJSONObject("android") ?: return null
+        val info = Info(
+            version = latest.optString("version"),
+            build = latest.optInt("build"),
+            notes = latest.optString("notes"),
+            url = apk.optString("url"),
+            sha256 = apk.optString("sha256"),
+            size = apk.optLong("size"),
+            stale = !fromGithub && latest.optBoolean("stale", false)
+        )
+        lastInfo = info
+        return if (info.url.isEmpty()) null else info
+    }
+
     /** Запрос к серверу: что опубликовано в последнем релизе. Возвращает null при ошибке. */
     fun fetch(ctx: Context): Info? {
         return try {
@@ -73,22 +90,32 @@ object Updater {
             }
             val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
-            val json = JSONObject(text)
-            val latest = json.optJSONObject("latest") ?: return null
-            val apk = latest.optJSONObject("android") ?: return null
-            val info = Info(
-                version = latest.optString("version"),
-                build = latest.optInt("build"),
-                notes = latest.optString("notes"),
-                url = apk.optString("url"),
-                sha256 = apk.optString("sha256"),
-                size = apk.optLong("size"),
-                stale = latest.optBoolean("stale", false)
-            )
-            lastInfo = info
-            if (info.url.isEmpty()) null else info
+            val latest = JSONObject(text).optJSONObject("latest") ?: return null
+            parseInfo(latest, fromGithub = false)
         } catch (e: Exception) {
             Log.w(TAG, "Не удалось проверить обновления: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Манифест последнего релиза ПРЯМО с GitHub — в обход сервера.
+     * Нужен, когда компьютер сервера не может связаться с GitHub и раздаёт
+     * устаревшие сведения (телефон обновился бы, а сервер об этом не знает).
+     */
+    private fun fetchFromGitHub(): Info? {
+        return try {
+            val url = URL(GITHUB_MANIFEST)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 15000
+                setRequestProperty("Accept", "application/json")
+            }
+            val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            conn.disconnect()
+            parseInfo(JSONObject(text), fromGithub = true)
+        } catch (e: Exception) {
+            Log.w(TAG, "GitHub напрямую: ${e.message}")
             null
         }
     }
@@ -104,7 +131,11 @@ object Updater {
             .edit().putLong(LAST_CHECK, System.currentTimeMillis()).apply()
 
         Thread {
-            val info = fetch(activity)
+            // Сервер может раздавать устаревшие сведения (нет связи с GitHub) —
+            // тогда дублируем запрос напрямую в GitHub и берём самое свежее.
+            val fromServer = fetch(activity)
+            val info = if (fromServer == null || fromServer.stale) fetchFromGitHub() ?: fromServer
+                       else fromServer
             activity.runOnUiThread {
                 when {
                     info == null -> if (!silent) alert(activity,

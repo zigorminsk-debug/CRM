@@ -75,6 +75,17 @@ class TaskAdapter(
         holder.eta.visibility = if (holder.eta.text.isBlank()) View.GONE else View.VISIBLE
         holder.work.text = t.work
         holder.address.text = t.address
+        // тап по адресу — Яндекс.Карты ищут АДРЕС текстом: точный дом,
+        // даже если координаты заявки определены лишь по улице
+        holder.address.setTextColor(0xFF1D4ED8.toInt())
+        holder.address.paint.isUnderlineText = true
+        holder.address.setOnClickListener { v ->
+            try {
+                val q = java.net.URLEncoder.encode(t.address, "UTF-8")
+                v.context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://yandex.ru/maps/?text=$q")))
+            } catch (e: Exception) { }
+        }
         holder.contact.text = buildString {
             append(t.contact)
             if (t.phone.isNotBlank()) append(" · ☎ ${t.phone}")

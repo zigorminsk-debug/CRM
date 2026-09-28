@@ -164,10 +164,13 @@ class MainActivity : AppCompatActivity() {
         // диагностика: какая версия установлена и до какого события дочитана лента
         val (vn, vc) = Updater.installedVersion(this)
         val diag = TextView(this)
-        diag.text = "Версия: $vn (сборка $vc) · лента до id=${prefs.getLong("feed_id", 0L)}"
-        Updater.lastInfo?.let {
-            diag.text += "\nОбновления: сервер знает ${it.version}" + if (it.stale) " (УСТАРЕВШИЕ — нет связи с GitHub)" else ""
+        var diagText = "Версия: $vn (сборка $vc) · лента до id=${prefs.getLong("feed_id", 0L)}"
+        val up = Updater.lastInfo
+        if (up != null) {
+            diagText = diagText + "\nОбновления: сервер знает " + up.version
+            if (up.stale) diagText = diagText + " (УСТАРЕВШИЕ — нет связи с GitHub)"
         }
+        diag.text = diagText
         diag.textSize = 12f
         diag.setTextColor(0xFF888888.toInt())
         box.addView(diag)
