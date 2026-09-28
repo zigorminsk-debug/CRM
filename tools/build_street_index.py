@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
