@@ -833,6 +833,33 @@ def api_user_active(uid: int, inp: ActiveIn, user: dict = Depends(auth.require_r
     return {"ok": True, "active": active}
 
 
+@app.post("/api/admin/geocode/refresh")
+def api_geocode_refresh(user: dict = Depends(auth.require_roles("admin", "operator"))) -> dict:
+    """Перегеокодировать активные заявки: стираем устаревший кэш адресов и
+    заново определяем координаты (онлайн-геокодер → локальный справочник).
+    Возвращает по каждой заявке: новый провайдер, точность, координаты."""
+    rows = db.rows2dicts(db.q(
+        """SELECT id, number, address FROM requests
+           WHERE status IN ('new','assigned','in_progress','postponed','pickup_office')
+           ORDER BY id"""))
+    results, fixed = [], 0
+    for r in rows:
+        db.execute("DELETE FROM geo_cache WHERE query=?", (r["address"].strip().lower(),))
+        g = geocode.resolve(r["address"], use_cache=False)
+        if g.get("ok") and g.get("lat"):
+            z = zones.resolve_zone(g["lat"], g["lon"], g.get("district", ""),
+                                   (g.get("text") or "") + " " + r["address"])
+            db.execute("UPDATE requests SET lat=?, lon=?, zone_id=? WHERE id=?",
+                       (g["lat"], g["lon"], z["id"] if z else None, r["id"]))
+            fixed += 1
+        results.append({"number": r["number"], "address": r["address"],
+                        "lat": g.get("lat"), "lon": g.get("lon"),
+                        "provider": g.get("provider"), "precision": g.get("precision"),
+                        "message": g.get("message")})
+    db.audit(user["username"], "geocode.refresh", {"total": len(rows), "fixed": fixed})
+    return {"ok": True, "total": len(rows), "fixed": fixed, "results": results}
+
+
 @app.post("/api/admin/purge-demo")
 def api_purge_demo(user: dict = Depends(auth.require_roles("admin"))) -> dict:
     """Удаление всех демо-записей: заявки, доставки, контрагенты, инженеры,
@@ -1174,7 +1201,17 @@ def api_diag() -> dict:
                 last_error = f.read()[-4000:]
     except OSError:
         pass
-    return {"ok": True, "version": updates.version_info()["version"],
+    geo = {}
+    try:
+        geo["cache_by_provider"] = {r["provider"]: r["n"] for r in db.rows2dicts(
+            db.q("SELECT provider, COUNT(*) AS n FROM geo_cache GROUP BY provider"))}
+        geo["errors"] = [{"at": r["at"], "action": r["action"], "detail": (r["detail"] or "")[:200]}
+                          for r in db.rows2dicts(db.q(
+            """SELECT at, action, detail FROM audit_log
+               WHERE action LIKE 'geocode.%error%' ORDER BY id DESC LIMIT 3"""))]
+    except Exception:
+        pass
+    return {"ok": True, "geo": geo, "version": updates.version_info()["version"],
             "python": _sys.version.split()[0], "data_dir": db.DATA_DIR,
             "db": {"path": db.DB_PATH, "exists": os.path.exists(db.DB_PATH),
                     "size": os.path.getsize(db.DB_PATH) if os.path.exists(db.DB_PATH) else 0},

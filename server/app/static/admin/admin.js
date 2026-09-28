@@ -331,6 +331,22 @@ $('#set-save').onclick = async () => {
   toast('Настройки сохранены');
 };
 
+/* ----------------------------------------- обновление координат заявок */
+$('#geocode-refresh').onclick = async () => {
+  if (!confirm('Заново определить координаты всех активных заявок по адресам?\n\nТочки будут обновлены (онлайн-геокодер OpenStreetMap, затем локальный справочник).')) return;
+  const btn = $('#geocode-refresh');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/admin/geocode/refresh', { method: 'POST' });
+    const bad = (r.results || []).filter(x => !x.lat || x.precision === 'settlement' || x.precision === 'district');
+    let msg = `Пересчитано заявок: ${r.fixed} из ${r.total}.`;
+    if (bad.length) msg += '\nНе удалось точно определить:\n' +
+      bad.map(x => `• ${x.number} ${x.address}`).join('\n') + '\nУточните адрес или точку вручную.';
+    alert(msg);
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
+};
+
 /* ------------------------------------------------- очистка демо-данных */
 $('#purge-demo').onclick = async () => {
   if (!confirm('Удалить ВСЕ демо-записи?\n\nУдаляются: заявки, доставки, контрагенты, инженеры, закрепления зон, отпуска, лента событий.\nОстаются: зоны, справочник работ, настройки, пользователи.')) return;

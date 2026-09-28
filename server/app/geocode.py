@@ -17,7 +17,7 @@ import urllib.request
 
 from . import db, zones
 
-UA = "CRM-CartridgeService/1.0 (Minsk; contact: admin@example.by)"
+UA = "CRM-CartridgeService/1.0 (Minsk; contact: ziv@csl.by)"
 _last_nominatim = 0.0
 
 
@@ -114,6 +114,16 @@ def load_street_index(csv_path: str | None = None) -> int:
             kind = parts[4] if len(parts) > 4 else "street"
             if mode == "upsert":
                 if name in existing:
+                    # у уже известной bundled-строки обновляем координаты:
+                    # в старых справочниках бывали ошибочные точки (центр города
+                    # вместо района) — свежий CSV должен их поправить
+                    try:
+                        db.execute(
+                            """UPDATE street_index SET lat=?, lon=?, district=?
+                               WHERE name=? AND source='bundled'""",
+                            (float(lat.replace(",", ".")), float(lon.replace(",", ".")), district, name))
+                    except (ValueError, TypeError):
+                        pass
                     continue
                 existing.add(name)
             try:
@@ -186,12 +196,19 @@ def local_lookup(address: str) -> dict | None:
         key = row["key"]
         if not key:
             continue
+        # строка-город «Минск» никогда не даёт полезных координат минскому
+        # адресу: раньше она получала бонус за «район Минск» и обгоняла улицу,
+        # и весь адрес молча съезжал в центр города
+        if row["kind"] == "settlement" and key == "минск":
+            continue
         words = key.split()
         # совпадение только по целым словам: «Ленина» не должно ловиться на «Ленинградскую»
         if not all(w in tokens for w in words):
             continue
         score = len(key)
-        if row["district"] and street_key(row["district"]) in tokens:
+        if row["kind"] == "street":
+            score += 12                     # улица всегда важнее нас. пункта
+        if row["kind"] != "settlement" and row["district"] and street_key(row["district"]) in tokens:
             score += 6
         if score > best_score:
             best, best_score = row, score
@@ -231,7 +248,27 @@ def geocode_yandex(address: str) -> dict | None:
         return None
 
 
-def geocode_nominatim(address: str) -> dict | None:
+def _learn_street(item: dict) -> None:
+    """Точный результат Nominatim сохраняем в локальный индекс: офлайн-поиск
+    после этого отвечает той же улицей, а не центром города."""
+    try:
+        a = item.get("address", {}) or {}
+        road, city = a.get("road"), a.get("city") or a.get("town")
+        if not road or not city or _norm(city) != "минск":
+            return
+        lat, lon = float(item["lat"]), float(item["lon"])
+        db.execute("DELETE FROM street_index WHERE name=? AND source='bundled'", (road,))
+        if db.q1("SELECT 1 FROM street_index WHERE name=?", (road,)):
+            return
+        db.execute(
+            """INSERT INTO street_index(name,key,lat,lon,district,kind,source,created_at)
+               VALUES(?,?,?,?,?,'street','nominatim',?)""",
+            (road, street_key(road), lat, lon, _region_from_nominatim(item), db.now()))
+    except Exception:  # noqa: BLE001 — самообучение не должно ломать геокодирование
+        pass
+
+
+def geocode_nominatim(address: str, deep: bool = True) -> dict | None:
     global _last_nominatim
     wait = 1.1 - (time.time() - _last_nominatim)
     if wait > 0:
@@ -248,15 +285,23 @@ def geocode_nominatim(address: str) -> dict | None:
         "bounded": 1,
     }
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params)
-    try:
-        _last_nominatim = time.time()
-        data = _http_json(url, timeout=15)
-    except Exception as exc:  # noqa: BLE001
-        db.audit("system", "geocode.nominatim_error", {"address": address, "error": str(exc)})
-        return None
+    data = None
+    for attempt in (1, 2):                      # одна повторная попытка при сетевом сбое
+        try:
+            _last_nominatim = time.time()
+            data = _http_json(url, timeout=15)
+            break
+        except Exception as exc:  # noqa: BLE001
+            db.audit("system", "geocode.nominatim_error", {"address": address, "error": str(exc)})
+            if attempt == 1:
+                time.sleep(2)
+    if not data and re.search(r"\bдом\s+\d+", address):
+        # с номером дома не нашли — хотя бы улица (точнее центра города)
+        return geocode_nominatim(re.sub(r"\bдом\s+\d+\b", " ", address).strip(), deep=False)
     if not data:
         return None
     item = data[0]
+    _learn_street(item)
     return {"lat": float(item["lat"]), "lon": float(item["lon"]), "provider": "nominatim",
             "text": item.get("display_name", ""), "district": _region_from_nominatim(item), "raw": item}
 
