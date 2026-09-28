@@ -31,7 +31,7 @@ jobs:
           test "$(cat harvest.exit)" = "0"
         env:
           PYTHONUNBUFFERED: "1"
-      - name: Диагностика: лог в репозиторий при сбое
+      - name: "Диагностика — лог в репозиторий при сбое"
         if: failure()
         run: |
           git config user.name "crm-index-bot"
