@@ -1,8 +1,6 @@
 package by.crm.engineer
 
-import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -65,32 +63,13 @@ class TaskAdapter(
                 else -> COLOR_NORMAL
             }
         )
-        holder.eta.text = buildString {
-            if (t.timeWindow.isNotBlank()) append(t.timeWindow)
-            if (t.eta.isNotEmpty()) {
-                if (isNotEmpty()) append("  ·  ")
-                append("прибытие ~${t.eta}")
-            }
-        }
-        holder.eta.visibility = if (holder.eta.text.isBlank()) View.GONE else View.VISIBLE
+        holder.eta.text = if (t.eta.isNotEmpty()) "прибытие ~${t.eta}" else ""
         holder.work.text = t.work
         holder.address.text = t.address
         holder.contact.text = buildString {
             append(t.contact)
-            if (t.phone.isNotBlank()) append(" · ☎ ${t.phone}")
+            if (t.phone.isNotBlank()) append(" · ${t.phone}")
             if (t.legKm > 0) append(" · ${t.legKm} км / ${t.driveMinutes} мин")
-        }
-        // клик по строке контакта — звонок через штатную звонилку
-        if (t.phone.isNotBlank()) {
-            holder.contact.setTextColor(0xFF1D4ED8.toInt())
-            holder.contact.paint.isUnderlineText = true
-            holder.contact.setOnClickListener { v ->
-                val p = t.phone.replace(Regex("[^+0-9]"), "")
-                if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
-            }
-        } else {
-            holder.contact.paint.isUnderlineText = false
-            holder.contact.setOnClickListener(null)
         }
         holder.comment.text = t.comment
         holder.comment.visibility = if (t.comment.isBlank()) View.GONE else View.VISIBLE
@@ -153,9 +132,5 @@ class DeliveryAdapter(
         holder.btnDone.setOnClickListener { onDelivered(d) }
         holder.btnPostpone.setOnClickListener { onPostpone(d) }
         holder.btnNav.setOnClickListener { onNavigate(d) }
-        holder.contact.setOnClickListener { v ->
-            val p = d.phone.replace(Regex("[^+0-9]"), "")
-            if (p.isNotEmpty()) v.context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$p")))
-        }
     }
 }

@@ -12,36 +12,23 @@ import csv
 import io
 import json
 import os
-import sqlite3
 import time
 from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import auth, db, geocode, requests_service as rs, routing, seed, updates, validation, zones
-from . import _runtime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-if _runtime.is_frozen():
-    # exe: ресурсы вшиты в бандл (sys._MEIPASS), static лежит в app/static — см. crm-server.spec
-    STATIC_DIR = os.path.join(_runtime.bundle_root(), "app", "static")
-else:
-    STATIC_DIR = os.path.join(BASE_DIR, "static")
-if os.environ.get("CRM_DOWNLOAD_DIR"):
-    DOWNLOAD_DIR = os.environ["CRM_DOWNLOAD_DIR"]
-elif _runtime.is_frozen():
-    # exe: папка раздачи рядом с CRM-Server.exe (туда же кладут CRM-Windows.exe и APK)
-    DOWNLOAD_DIR = _runtime.writable_dir("downloads")
-else:
-    DOWNLOAD_DIR = os.path.join(os.path.dirname(BASE_DIR), "..", "downloads")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+DOWNLOAD_DIR = os.environ.get("CRM_DOWNLOAD_DIR", os.path.join(os.path.dirname(BASE_DIR), "..", "downloads"))
 
 app = FastAPI(
-    title="Cartridge Engineer: заявки на заправку картриджей и ремонт оргтехники",
+    title="CRM: заявки на заправку картриджей и ремонт оргтехники",
     version=updates.version_info()["version"],
     description="Сервер приёма заявок (Windows-клиент), распределения по зонам, маршрутизации (Android) и истории.",
 )
@@ -73,8 +60,8 @@ class LoginIn(BaseModel):
 class RequestIn(BaseModel):
     """Форма заявки (Windows-клиент). Обязательные поля помечены Field(...)."""
     contractor: str = Field(..., description="Наименование контрагента")
-    unp: str = Field("", description="УНП (необязательно — могут быть частные лица)")
-    bank_account: str = Field("", description="Расчётный счёт (необязательно)")
+    unp: str = Field(..., description="УНП, 9 цифр с контролем")
+    bank_account: str = Field(..., description="Расчётный счёт (IBAN BY… или 13 знаков)")
     contact_person: str = Field(..., description="Контактное лицо")
     phone: str = Field(..., description="Телефон, приводится к +375 XX XXX-XX-XX")
     work_id: int | None = None
@@ -90,8 +77,6 @@ class RequestIn(BaseModel):
     email: str | None = None
     bank_name: str | None = None
     planned_date: str | None = None
-    time_from: str | None = Field(None, description="Окно визита «с», ЧЧ:ММ")
-    time_to: str | None = Field(None, description="Окно визита «по», ЧЧ:ММ")
 
 
 class StatusIn(BaseModel):
@@ -144,29 +129,6 @@ class UserIn(BaseModel):
     role: str
     full_name: str | None = None
     engineer_id: int | None = None
-    company: str | None = None
-    unp: str | None = None
-
-
-class PasswordIn(BaseModel):
-    password: str
-
-
-class ActiveIn(BaseModel):
-    active: int
-
-
-class ClientRequestIn(BaseModel):
-    """Заявка из кабинета клиента: реквизиты организации берутся из профиля."""
-    contact_person: str = Field(..., description="Контактное лицо")
-    phone: str = Field(..., description="Телефон, приводится к +375 XX XXX-XX-XX")
-    work_id: int | None = None
-    work_code: str | None = None
-    priority: str = "normal"
-    address: str = Field(..., description="Адрес: Минск / Минский район")
-    comment: str = ""
-    equipment: str | None = None
-    serial: str | None = None
 
 
 class WorkIn(BaseModel):
@@ -185,8 +147,7 @@ class WorkIn(BaseModel):
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "time": db.now(), "version": updates.version_info()["version"],
-            "db": os.path.basename(db.DB_PATH), "data_dir": db.DATA_DIR,
-            "zone_count": len(zones.all_zones())}
+            "db": os.path.basename(db.DB_PATH), "zone_count": len(zones.all_zones())}
 
 
 @app.get("/api/version")
@@ -267,20 +228,12 @@ def api_coverage(day: str | None = None) -> list[dict]:
 
 @app.get("/api/contractors")
 def api_contractors(q: str = "", limit: int = 20) -> list[dict]:
-    """Справочник контрагентов + поиск (регистронезависимо, кириллица — в Python)."""
     if not q:
         return db.rows2dicts(db.q("SELECT * FROM contractors ORDER BY id DESC LIMIT ?", (limit,)))
-    t = q.strip().lower()
-    rows = db.rows2dicts(db.q("SELECT * FROM contractors ORDER BY id DESC LIMIT 2000"))
-    def _hit(d: dict) -> bool:
-        return (t in (d.get("name") or "").lower()
-                or t in (d.get("unp") or "")
-                or t in (d.get("bank_account") or "").lower()
-                or t in (d.get("contact_person") or "").lower()
-                or t in (d.get("phone") or ""))
-    starts = [d for d in rows if _hit(d) and (d.get("name") or "").lower().startswith(t)]
-    rest = [d for d in rows if _hit(d) and d not in starts]
-    return (starts + rest)[:limit]
+    like = f"%{q}%"
+    return db.rows2dicts(db.q(
+        """SELECT * FROM contractors WHERE name LIKE ? OR unp LIKE ? OR REPLACE(bank_account,' ','') LIKE ?
+           OR contact_person LIKE ? ORDER BY id DESC LIMIT ?""", (like, like, like, like, limit)))
 
 
 # =====================================================================
@@ -377,134 +330,6 @@ def _engineer_id_of(user: dict, engineer_id: int | None) -> int:
     return int(engineer_id)
 
 
-@app.get("/api/geo/streets")
-def api_geo_streets(q: str = Query(..., min_length=2, max_length=80), settlement: str = "",
-                    user: dict = Depends(auth.current_user)) -> list[dict]:
-    """Подсказки улиц/проспектов/переулков по началу ввода."""
-    return geocode.search_streets(q, settlement)
-
-
-@app.get("/api/geo/settlements")
-def api_geo_settlements(q: str = Query(..., min_length=2, max_length=80),
-                        user: dict = Depends(auth.current_user)) -> list[dict]:
-    """Подсказки населённых пунктов (Минск и Минская область)."""
-    return geocode.search_settlements(q)
-
-
-@app.get("/api/admin/backup/info")
-def api_backup_info(user: dict = Depends(auth.require_roles("admin", "operator"))) -> dict:
-    """Где лежит база, её размер и имеющиеся копии (data/backups)."""
-    def _dir_items():
-        items = []
-        try:
-            for name in os.listdir(db.BACKUP_DIR):
-                p = os.path.join(db.BACKUP_DIR, name)
-                if os.path.isfile(p):
-                    items.append({"name": name, "size": os.path.getsize(p),
-                                  "modified": datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M:%S")})
-        except OSError:
-            pass
-        return sorted(items, key=lambda x: x["name"], reverse=True)
-
-    size = os.path.getsize(db.DB_PATH) if os.path.exists(db.DB_PATH) else 0
-    return {"ok": True, "data_dir": db.DATA_DIR, "db_file": os.path.basename(db.DB_PATH),
-            "db_size": size, "backups": _dir_items()}
-
-
-@app.get("/api/admin/backup")
-def api_backup_download(user: dict = Depends(auth.require_roles("admin", "operator"))) -> FileResponse:
-    """Выгрузить базу в бэкап: консистентная копия + скачивание файла."""
-    os.makedirs(db.BACKUP_DIR, exist_ok=True)
-    stamp = "".join(ch for ch in db.now() if ch.isdigit())[:14]
-    path = os.path.join(db.BACKUP_DIR, f"crm-backup-{stamp}.sqlite")
-    db.backup_to(path)
-    db.audit(user.get("username"), "backup.export", {"file": os.path.basename(path)})
-    return FileResponse(path, filename=os.path.basename(path),
-                        media_type="application/octet-stream",
-                        headers={"Content-Disposition": f'attachment; filename="{os.path.basename(path)}"'})
-
-
-@app.post("/api/admin/backup/restore")
-async def api_backup_restore(request: Request,
-                             user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    """Загрузить базу из бэкапа (только администратор).
-
-    Тело запроса — файл .sqlite. Текущая база перед заменой сохраняется
-    в data/backups/auto-before-restore-*.sqlite.
-    """
-    data = await request.body()
-    if len(data) < 100 or not data.startswith(b"SQLite format 3\x00"):
-        raise HTTPException(422, "Это не файл базы SQLite — загрузите файл, выгруженный кнопкой «Выгрузить базу в бэкап»")
-    os.makedirs(db.BACKUP_DIR, exist_ok=True)
-    tmp = os.path.join(db.BACKUP_DIR, f"upload-{''.join(ch for ch in db.now() if ch.isdigit())[:14]}.tmp")
-    with open(tmp, "wb") as f:
-        f.write(data)
-
-    # проверка копии: целостность и наличие ключевых таблиц
-    try:
-        chk = sqlite3.connect(tmp)
-        try:
-            ic = chk.execute("PRAGMA integrity_check").fetchone()[0]
-            if ic != "ok":
-                raise HTTPException(422, f"Файл повреждён (integrity_check: {ic})")
-            tables = {r[0] for r in chk.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for need in ("users", "requests", "works", "zones"):
-                if need not in tables:
-                    raise HTTPException(422, f"В файле нет таблицы {need} — это не база CRM")
-            counts = {t: chk.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                      for t in ("users", "requests", "engineers", "contractors")}
-        finally:
-            chk.close()
-    except HTTPException:
-        os.remove(tmp)
-        raise
-    except sqlite3.Error as exc:
-        os.remove(tmp)
-        raise HTTPException(422, f"Файл не читается как база SQLite: {exc}")
-
-    # страховка: текущая база -> auto-before-restore-*.sqlite
-    stamp = "".join(ch for ch in db.now() if ch.isdigit())[:14]
-    safety = os.path.join(db.BACKUP_DIR, f"auto-before-restore-{stamp}.sqlite")
-    try:
-        db.backup_to(safety)
-    except sqlite3.Error:
-        safety = ""
-    db.restore_from(tmp)
-    _keep_last_backups(20)
-    db.audit(user.get("username"), "backup.restore",
-             {"users": counts["users"], "requests": counts["requests"], "safety_copy": os.path.basename(safety) or "-"})
-    return {"ok": True, "message": f"База восстановлена: пользователей {counts['users']}, заявок {counts['requests']}",
-            "safety_copy": os.path.basename(safety) if safety else None, "counts": counts}
-
-
-def _keep_last_backups(limit: int = 20) -> None:
-    """В data/backups храним не больше limit последних файлов."""
-    try:
-        files = sorted((os.path.join(db.BACKUP_DIR, n) for n in os.listdir(db.BACKUP_DIR)
-                        if n.endswith(".sqlite")), key=os.path.getmtime, reverse=True)
-        for extra in files[limit:]:
-            os.remove(extra)
-    except OSError:
-        pass
-
-
-@app.get("/api/engineer/history")
-def api_engineer_history(engineer_id: int | None = None, limit: int = 100,
-                         user: dict = Depends(auth.current_user)) -> dict:
-    """Исполненные заявки инженера (для кнопки «История» в Android)."""
-    eid = _engineer_id_of(user, engineer_id)
-    rows = db.q("""SELECT r.id, r.number, r.status, r.address, r.contractor, r.phone,
-                          r.planned_date, r.time_from, r.time_to, r.done_at, r.created_at, w.name AS work_name
-                   FROM requests r JOIN works w ON w.id=r.work_id
-                   WHERE r.engineer_id=? AND r.status IN ('done_onsite','delivered','closed')
-                   ORDER BY COALESCE(r.done_at, r.planned_date) DESC LIMIT ?""", (eid, limit))
-    items = db.rows2dicts(rows)
-    for t in items:
-        t["status_label"] = routing.STATUS_LABEL.get(t["status"], t["status"])
-        t["phone_formatted"] = validation.format_phone(t["phone"])
-    return {"ok": True, "items": items}
-
-
 @app.get("/api/engineer/route")
 def api_engineer_route(day: str | None = None, engineer_id: int | None = None,
                        user: dict = Depends(auth.current_user)) -> dict:
@@ -521,8 +346,7 @@ def api_engineer_tasks(day: str | None = None, engineer_id: int | None = None,
     tasks = db.rows2dicts(db.q(
         """SELECT r.id, r.number, r.priority, r.status, r.address, r.lat, r.lon, r.contact_person, r.phone,
                   r.comment, r.contractor, r.unp, r.bank_account, r.planned_date, r.equipment, r.serial,
-                  w.name AS work_name, w.site_kind, z.name AS zone_name,
-                  r.time_from, r.time_to
+                  w.name AS work_name, w.site_kind, z.name AS zone_name
            FROM requests r JOIN works w ON w.id=r.work_id LEFT JOIN zones z ON z.id=r.zone_id
            WHERE r.engineer_id=? AND r.status IN ('new','assigned','in_progress','postponed','pickup_office')
            ORDER BY CASE r.priority WHEN 'emergency' THEN 0 WHEN 'urgent' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, r.id""",
@@ -622,73 +446,6 @@ async def api_events_stream(request: Request, user: dict = Depends(auth.current_
 #  Админка: инженеры, зоны, отпуска, справочники, отчёты
 # =====================================================================
 
-# =====================================================================
-#  Кабинет клиента (role=client): свои заявки и доставки по УНП профиля
-# =====================================================================
-
-def _client_profile(user: dict) -> dict:
-    return {"username": user["username"], "full_name": user["full_name"],
-            "company": user.get("company"), "unp": user.get("unp")}
-
-
-def _require_client_unp(user: dict) -> str:
-    unp = (user.get("unp") or "").strip()
-    if not unp:
-        raise HTTPException(422, "В профиле клиента не указан УНП организации — "
-                                 "попросите администратора заполнить его (админка → Пользователи → Клиенты)")
-    return unp
-
-
-@app.get("/api/client/me")
-def api_client_me(user: dict = Depends(auth.require_roles("client"))) -> dict:
-    return _client_profile(user)
-
-
-@app.get("/api/client/requests")
-def api_client_requests(user: dict = Depends(auth.require_roles("client")),
-                        limit: int = 200, offset: int = 0) -> dict:
-    return rs.search({"unp": _require_client_unp(user)}, limit=min(limit, 500), offset=offset)
-
-
-@app.post("/api/client/requests", status_code=201)
-def api_client_create(inp: ClientRequestIn, user: dict = Depends(auth.require_roles("client"))) -> dict:
-    unp = _require_client_unp(user)
-    data = {
-        "contractor": user.get("company") or user.get("full_name") or user["username"],
-        "unp": unp,
-        "bank_account": "",   # кабинет клиента: счёт не обязателен, укажет диспетчер
-        "contact_person": inp.contact_person,
-        "phone": inp.phone,
-        "work_id": inp.work_id,
-        "work_code": inp.work_code,
-        "priority": inp.priority,
-        "address": inp.address,
-        "comment": inp.comment,
-        "equipment": inp.equipment,
-        "serial": inp.serial,
-        "account_optional": True,   # р/с у клиента не спрашиваем — дополнит диспетчер
-    }
-    return rs.create_request(data, actor=user["username"], source="client")
-
-
-@app.get("/api/client/requests/{rid}")
-def api_client_request(rid: int, user: dict = Depends(auth.require_roles("client"))) -> dict:
-    r = rs.get_request(rid)
-    if (r.get("unp") or "") != _require_client_unp(user):
-        raise HTTPException(403, "Это заявка другой организации")
-    return r
-
-
-@app.get("/api/client/deliveries")
-def api_client_deliveries(user: dict = Depends(auth.require_roles("client"))) -> list[dict]:
-    return db.rows2dicts(db.q(
-        """SELECT d.id, d.scheduled_date, d.status, d.postpone_count, d.comment,
-                  r.number, r.contractor, r.address
-           FROM deliveries d JOIN requests r ON r.id = d.request_id
-           WHERE r.unp=? ORDER BY d.scheduled_date DESC, d.id DESC LIMIT 100""",
-        (_require_client_unp(user),)))
-
-
 @app.get("/api/admin/engineers")
 def api_engineers(active_only: bool = False, user: dict = Depends(auth.current_user)) -> list[dict]:
     sql = "SELECT * FROM engineers" + (" WHERE active=1" if active_only else "") + " ORDER BY full_name"
@@ -721,137 +478,21 @@ def api_engineer_update(eid: int, inp: EngineerIn, user: dict = Depends(auth.req
     return db.row2dict(db.q1("SELECT * FROM engineers WHERE id=?", (eid,)))
 
 
-@app.delete("/api/admin/engineers/{eid}")
-def api_engineer_delete(eid: int, user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    """Удаление инженера. Заявки остаются в истории, но открепляются от инженера
-    (открытые становятся нераспределёнными); зоны и отпуска удаляются."""
-    eng = db.q1("SELECT * FROM engineers WHERE id=?", (eid,))
-    if not eng:
-        raise HTTPException(404, "Инженер не найден")
-    counts = {
-        "requests_unlinked": db.q1("SELECT COUNT(*) AS c FROM requests WHERE engineer_id=?", (eid,))["c"],
-        "open_requests_unassigned": db.q1(
-            "SELECT COUNT(*) AS c FROM requests WHERE engineer_id=? "
-            "AND status IN ('new','assigned','in_progress','pickup_office')", (eid,))["c"],
-        "zones_removed": db.q1("SELECT COUNT(*) AS c FROM zone_assignments WHERE engineer_id=?", (eid,))["c"],
-        "absences_removed": db.q1("SELECT COUNT(*) AS c FROM absences WHERE engineer_id=?", (eid,))["c"],
-    }
-    db.execute("UPDATE absences SET replacement_engineer_id=NULL WHERE replacement_engineer_id=?", (eid,))
-    db.execute("UPDATE requests SET engineer_id=NULL WHERE engineer_id=?", (eid,))
-    db.execute("UPDATE deliveries SET engineer_id=NULL WHERE engineer_id=?", (eid,))
-    db.execute("UPDATE users SET engineer_id=NULL WHERE engineer_id=?", (eid,))
-    db.execute("DELETE FROM zone_assignments WHERE engineer_id=?", (eid,))
-    db.execute("DELETE FROM absences WHERE engineer_id=?", (eid,))
-    db.execute("DELETE FROM route_plans WHERE engineer_id=?", (eid,))
-    db.execute("DELETE FROM outbox WHERE engineer_id=?", (eid,))
-    db.execute("DELETE FROM engineers WHERE id=?", (eid,))
-    db.audit(user["username"], "engineer.delete",
-             {"id": eid, "name": eng["full_name"], **counts})
-    return {"ok": True, "name": eng["full_name"], **counts}
-
-
-ROLES = ("admin", "operator", "engineer", "client")
-ROLE_LABELS = {"admin": "Администратор", "operator": "Диспетчер",
-               "engineer": "Инженер", "client": "Клиент"}
-
-
-def _validate_unp(unp: str) -> str:
-    u = validation.normalize_unp(unp or "")
-    err = validation.unp_error(u)
-    if err:
-        raise HTTPException(422, err)
-    return u
-
-
 @app.get("/api/admin/users")
 def api_users(user: dict = Depends(auth.require_roles("admin"))) -> list[dict]:
     return db.rows2dicts(db.q(
-        "SELECT id,username,role,full_name,engineer_id,company,unp,active,created_at FROM users ORDER BY id"))
+        "SELECT id,username,role,full_name,engineer_id,active,created_at FROM users ORDER BY id"))
 
 
 @app.post("/api/admin/users")
 def api_user_create(inp: UserIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
     if db.q1("SELECT 1 FROM users WHERE username=?", (inp.username.lower(),)):
         raise HTTPException(409, "Такой логин уже существует")
-    if inp.role not in ROLES:
-        raise HTTPException(422, "Роль: admin | operator (диспетчер) | engineer | client")
-    unp = None
-    if inp.role == "client":
-        if not (inp.company or "").strip():
-            raise HTTPException(422, "Для клиента укажите наименование организации")
-        unp = _validate_unp(inp.unp or "")
-        if db.q1("SELECT 1 FROM users WHERE role='client' AND unp=?", (unp,)):
-            raise HTTPException(409, f"Клиент с УНП {unp} уже заведён")
-    uid = auth.create_user(inp.username.lower(), inp.password, inp.role, inp.full_name or inp.username,
-                           inp.engineer_id, (inp.company or "").strip() or None, unp)
+    if inp.role not in ("admin", "operator", "engineer"):
+        raise HTTPException(422, "Роль: admin | operator | engineer")
+    uid = auth.create_user(inp.username.lower(), inp.password, inp.role, inp.full_name or inp.username, inp.engineer_id)
     db.audit(user["username"], "user.create", {"username": inp.username, "role": inp.role})
     return {"id": uid, "username": inp.username.lower(), "role": inp.role}
-
-
-@app.delete("/api/admin/users/{uid}")
-def api_user_delete(uid: int, user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    target = db.q1("SELECT * FROM users WHERE id=?", (uid,))
-    if not target:
-        raise HTTPException(404, "Пользователь не найден")
-    if target["id"] == user["id"]:
-        raise HTTPException(422, "Нельзя удалить свою учётную запись")
-    if target["role"] == "admin" and not db.q1("SELECT 1 FROM users WHERE role='admin' AND id!=? AND active=1", (uid,)):
-        raise HTTPException(422, "Это последний администратор — сначала создайте другого")
-    db.execute("DELETE FROM users WHERE id=?", (uid,))
-    db.audit(user["username"], "user.delete", {"username": target["username"]})
-    return {"ok": True}
-
-
-@app.post("/api/admin/users/{uid}/password")
-def api_user_password(uid: int, inp: PasswordIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    if len(inp.password or "") < 6:
-        raise HTTPException(422, "Пароль — минимум 6 символов")
-    if not db.q1("SELECT 1 FROM users WHERE id=?", (uid,)):
-        raise HTTPException(404, "Пользователь не найден")
-    auth.set_password(uid, inp.password)
-    db.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
-    db.audit(user["username"], "user.password", {"user_id": uid})
-    return {"ok": True}
-
-
-@app.post("/api/admin/users/{uid}/active")
-def api_user_active(uid: int, inp: ActiveIn, user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    target = db.q1("SELECT * FROM users WHERE id=?", (uid,))
-    if not target:
-        raise HTTPException(404, "Пользователь не найден")
-    active = 1 if inp.active else 0
-    if not active:
-        if target["id"] == user["id"]:
-            raise HTTPException(422, "Нельзя блокировать свою учётную запись")
-        if target["role"] == "admin" and not db.q1(
-                "SELECT 1 FROM users WHERE role='admin' AND id!=? AND active=1", (uid,)):
-            raise HTTPException(422, "Это последний администратор — нельзя блокировать")
-    db.execute("UPDATE users SET active=? WHERE id=?", (active, uid))
-    if not active:
-        db.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
-    db.audit(user["username"], "user.active", {"user_id": uid, "active": active})
-    return {"ok": True, "active": active}
-
-
-@app.post("/api/admin/purge-demo")
-def api_purge_demo(user: dict = Depends(auth.require_roles("admin"))) -> dict:
-    """Удаление всех демо-записей: заявки, доставки, контрагенты, инженеры,
-    закрепления зон, отпуска, лента событий. Остаётся структура: зоны,
-    справочник работ, настройки, пользователи."""
-    counts = {}
-    for table in ("route_plans", "deliveries", "requests", "request_events", "contractors",
-                  "absences", "zone_assignments", "outbox"):
-        counts[table] = db.q1(f"SELECT COUNT(*) AS c FROM {table}")["c"]  # noqa: S608 (фиксированный список)
-        db.execute(f"DELETE FROM {table}")  # noqa: S608
-    # отвязываем пользователей от инженеров (ссылки на удаляемые записи)
-    counts["users_unlinked"] = db.q1("SELECT COUNT(*) AS c FROM users WHERE engineer_id IS NOT NULL")["c"]
-    db.execute("UPDATE users SET engineer_id=NULL")
-    counts["engineers"] = db.q1("SELECT COUNT(*) AS c FROM engineers")["c"]
-    db.execute("DELETE FROM engineers")
-    db.set_setting("demo_loaded", "1", actor=user["username"])
-    db.audit(user["username"], "demo.purge", counts)
-    return {"ok": True, "deleted": counts,
-            "message": "Демо-данные удалены. Добавьте инженеров и закрепите зоны — система готова к работе."}
 
 
 @app.get("/api/admin/assignments")
@@ -1014,7 +655,6 @@ DOWNLOAD_FILES = {
     "win": (("CRM-Windows.exe", "CRM-Windows-Setup.exe"), "Клиент для Windows (приём заявок)"),
     "apk": (("CRM-Engineer.apk",), "Приложение инженера для Android"),
     "server": (("crm-server.zip",), "Сервер (Python)"),
-    "server-exe": (("CRM-Server.exe",), "Сервер одним файлом (exe, Python не нужен)"),
     "src": (("crm-sources.zip",), "Исходники клиента Windows и Android"),
 }
 
@@ -1074,12 +714,11 @@ def downloads_page() -> HTMLResponse:
 @app.get("/")
 def root() -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-    <title>Cartridge Engineer — приём заявок</title>
-    <link rel="icon" href="/static/mobile/icon-32.png">
+    <title>CRM — заявки на заправку картриджей и ремонт оргтехники</title>
     <style>body{{font:16px system-ui;margin:40px;max-width:820px;line-height:1.5}}
     a.b{{display:inline-block;margin:6px 12px 6px 0;padding:10px 16px;background:#1a56db;color:#fff;
     border-radius:8px;text-decoration:none}}</style></head><body>
-    <h1>Cartridge Engineer — сервер работает</h1>
+    <h1>Сервер заявок работает</h1>
     <p>Время сервера: {db.now()}</p>
     <p><a class="b" href="/admin">Веб-админка диспетчера</a>
        <a class="b" href="/m">Приложение инженера (мобильное)</a>
@@ -1090,102 +729,17 @@ def root() -> HTMLResponse:
     </body></html>""")
 
 
-def _page_or_error(path: str, title: str) -> HTMLResponse | FileResponse:
-    """Страница интерфейса; если файл не найден (неполное обновление) —
-    понятная страница вместо голого «Internal Server Error»."""
-    if not os.path.exists(path):
-        return HTMLResponse(f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-        <title>{title} — файлы не найдены</title></head>
-        <body style="font:16px system-ui;margin:40px;line-height:1.5">
-        <h2>Файл интерфейса не найден</h2>
-        <p>Сервер запущен, но в папке программы нет файла:<br><code>{path}</code></p>
-        <p>Обычно это значит, что при обновлении скопировались не все файлы.
-        Установите сервер заново из CRM-Server-Setup.exe (или распакуйте свежий
-        crm-server.zip целиком) — база данных в папке data не пострадает.</p>
-        </body></html>""", status_code=503)
-    return FileResponse(path)
-
-
 @app.get("/admin")
-def admin_page():
-    return _page_or_error(os.path.join(STATIC_DIR, "admin", "index.html"), "Админка")
+def admin_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC_DIR, "admin", "index.html"))
 
 
 @app.get("/m")
-def mobile_page():
-    return _page_or_error(os.path.join(STATIC_DIR, "mobile", "index.html"), "Приложение инженера")
-
-
-@app.get("/dispatcher")
-def dispatcher_page():
-    return _page_or_error(os.path.join(STATIC_DIR, "dispatcher", "index.html"), "Диспетчер")
-
-
-@app.get("/client")
-def client_page():
-    return _page_or_error(os.path.join(STATIC_DIR, "client", "index.html"), "Кабинет клиента")
+def mobile_page() -> FileResponse:
+    return FileResponse(os.path.join(STATIC_DIR, "mobile", "index.html"))
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.exception_handler(Exception)
-async def unhandled_exc_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Любая непредвиденная ошибка: трассировка в data/error.log (последние записи),
-    ответ — читаемый текст с краткой причиной (видно и в браузере, и в логах)."""
-    import traceback as _tb
-    trace = _tb.format_exc()
-    try:
-        log = os.path.join(db.DATA_DIR, "error.log")
-        with open(log, "a", encoding="utf-8") as f:
-            f.write("\n=== " + db.now() + " " + str(request.url) + " ===\n" + trace)
-        # держим файл компактным: не более ~400 КБ
-        if os.path.getsize(log) > 400_000:
-            with open(log, "r", encoding="utf-8") as f:
-                tail = f.read()[-200_000:]
-            with open(log, "w", encoding="utf-8") as f:
-                f.write(tail)
-    except OSError:
-        pass
-    return JSONResponse(status_code=500, content={
-        "ok": False,
-        "error": f"Внутренняя ошибка сервера: {exc.__class__.__name__}: {exc}. "
-                 f"Полная трассировка: data/error.log (или /api/diag)"})
-
-
-@app.get("/api/diag")
-def api_diag() -> dict:
-    """Диагностика сервера: версии, файлы интерфейсов, последние ошибки (без секретов)."""
-    import sys as _sys
-    pages = {}
-    for name, rel in (("admin", "admin/index.html"), ("mobile", "mobile/index.html"),
-                      ("dispatcher", "dispatcher/index.html"), ("client", "client/index.html")):
-        p = os.path.join(STATIC_DIR, rel)
-        pages[name] = {"ok": os.path.exists(p), "path": p}
-    last_error = ""
-    try:
-        log = os.path.join(db.DATA_DIR, "error.log")
-        if os.path.exists(log):
-            with open(log, "r", encoding="utf-8") as f:
-                last_error = f.read()[-4000:]
-    except OSError:
-        pass
-    return {"ok": True, "version": updates.version_info()["version"],
-            "python": _sys.version.split()[0], "data_dir": db.DATA_DIR,
-            "db": {"path": db.DB_PATH, "exists": os.path.exists(db.DB_PATH),
-                    "size": os.path.getsize(db.DB_PATH) if os.path.exists(db.DB_PATH) else 0},
-            "pages": pages, "last_error": last_error}
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exc_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Ошибки схемы запроса по-русски и строкой — иначе клиенты показывают [object Object]."""
-    parts = []
-    for e in exc.errors():
-        loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
-        parts.append(f"{loc or 'поле'}: {e.get('msg', 'некорректное значение')}")
-    return JSONResponse(status_code=422, content={
-        "ok": False, "error": "Некорректный запрос — " + "; ".join(parts), "status": 422})
 
 
 @app.exception_handler(HTTPException)

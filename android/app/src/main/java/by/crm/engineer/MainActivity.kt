@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.routeAllButton).setOnClickListener { openFullRoute() }
         findViewById<Button>(R.id.historyButton).setOnClickListener { showHistory() }
         findViewById<Button>(R.id.updateButton).setOnClickListener { checkUpdates(true) }
+        findViewById<Button>(R.id.signalSettingsButton).setOnClickListener { showSignalSettings() }
 
         taskAdapter = TaskAdapter(
             onGo = { task -> go(task) },
@@ -114,6 +115,43 @@ class MainActivity : AppCompatActivity() {
         feedReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) { } }
         feedReceiver = null
         super.onDestroy()
+    }
+
+    // ----------------------------------------------- настройки сигнала о заявке
+    private fun showSignalSettings() {
+        val prefs = getSharedPreferences("crm", Context.MODE_PRIVATE)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 12)
+        }
+        fun addSwitch(title: String, key: String) {
+            val sw = Switch(this)
+            sw.text = title
+            sw.isChecked = prefs.getBoolean(key, true)
+            sw.setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean(key, v).apply() }
+            box.addView(sw)
+        }
+        addSwitch("Звон монет", "alert_sound")
+        addSwitch("Вибрация", "alert_vibrate")
+        addSwitch("Мигание фонариком", "alert_flash")
+
+        val test = Button(this)
+        test.text = "▶ Проверить сигнал"
+        test.setOnClickListener { NewRequestAlert.test(this) }
+        box.addView(test)
+
+        val hint = TextView(this)
+        hint.text = "Сигнал играет на громкости «Мультимедиа». Если не слышно — " +
+            "нажмите кнопку громкости на телефоне и поднимите ползунок «Мультимедиа»."
+        hint.textSize = 13f
+        hint.setPadding(0, 20, 0, 0)
+        box.addView(hint)
+
+        AlertDialog.Builder(this)
+            .setTitle("Сигнал о новой заявке")
+            .setView(box)
+            .setPositiveButton("Готово", null)
+            .show()
     }
 
     // ------------------------------------------------------------- обновления

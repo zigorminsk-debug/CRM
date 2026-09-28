@@ -13,34 +13,50 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Комплексное уведомление о новой заявке на сегодня:
- *   1) звон монет — MediaPlayer прямо из сервиса (гарантированно слышно
- *      независимо от настроек каналов уведомлений и разрешения на уведомления);
+ *   1) звон монет — MediaPlayer прямо из сервиса, на ГРОМКОСТИ МУЛЬТИМЕДИА
+ *      (та самая, которую поднимают кнопками громкости; громкость уведомлений
+ *      на многих телефонах выключена — из-за этого звук «пропадал»);
  *   2) вибрация — короткий двойной импульс;
  *   3) мигание фонариком (факел основной камеры).
- * Всё вместе не чаще одного раза в 4 секунды.
+ * Каждую составляющую можно отключить в настройках сигнала приложения
+ * (SharedPreferences "crm": alert_sound / alert_vibrate / alert_flash).
  */
 object NewRequestAlert {
 
     private val lastAlert = AtomicLong(0L)
     private val lastFlash = AtomicLong(0L)
 
-    /** Звон монет + вибрация + вспышки фонарика. */
+    private fun pref(context: Context, key: String) =
+        context.getSharedPreferences("crm", Context.MODE_PRIVATE).getBoolean(key, true)
+
+    /** Звон монет + вибрация + вспышки (по настройкам, не чаще раза в 4 с). */
     fun alert(context: Context) {
         val now = System.currentTimeMillis()
         val prev = lastAlert.get()
         if (now - prev < 4000) return
         if (!lastAlert.compareAndSet(prev, now)) return
-        playCoins(context)
-        vibrate(context)
-        flash(context)
+        perform(context)
     }
 
-    /** Звон монет из res/raw (медиаплеер с уведомительными атрибутами громкости). */
+    /** Проверка сигнала из настроек: проиграть сразу, не обращая внимания на паузу. */
+    fun test(context: Context) {
+        lastAlert.set(0L)
+        lastFlash.set(0L)
+        perform(context)
+    }
+
+    private fun perform(context: Context) {
+        if (pref(context, "alert_sound")) playCoins(context)
+        if (pref(context, "alert_vibrate")) vibrate(context)
+        if (pref(context, "alert_flash")) flash(context)
+    }
+
+    /** Звон монет из res/raw на громкости МУЛЬТИМЕДИА (USAGE_MEDIA). */
     private fun playCoins(context: Context) {
         try {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build()
             val mp = MediaPlayer.create(context, R.raw.new_request_coins, attrs, 0)
             if (mp != null) {

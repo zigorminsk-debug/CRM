@@ -69,9 +69,6 @@ def seed(create_demo: bool | None = None) -> None:
 
     if not db.q1("SELECT 1 FROM engineers LIMIT 1"):
         demo = create_demo if create_demo is not None else os.environ.get("CRM_DEMO", "1") != "0"
-        # демо-инженеры создаются один раз: после «Очистить базу от демо» при
-        # перезапуске появится только нейтральный «Инженер 1», без демо-имён
-        demo = demo and db.setting("demo_loaded") != "1"
         eng_ids = []
         if demo:
             data = [
@@ -84,14 +81,12 @@ def seed(create_demo: bool | None = None) -> None:
                 eng_ids.append(db.execute(
                     "INSERT INTO engineers(full_name,phone,base_lat,base_lon,active,notes) VALUES(?,?,?,?,1,?)",
                     (name, phone, 53.9045, 27.5615, "База: офис")))
-            db.set_setting("demo_loaded", "1", actor="bootstrap")
         else:
             eng_ids.append(db.execute(
                 "INSERT INTO engineers(full_name,phone,base_lat,base_lon,active,notes) VALUES(?,?,?,?,1,?)",
                 ("Инженер 1", "+375 29 000-00-00", 53.9045, 27.5615, "База: офис")))
         eng_name = db.q1("SELECT full_name FROM engineers WHERE id=?", (eng_ids[0],))["full_name"]
-        if not db.q1("SELECT 1 FROM users WHERE username='engineer'"):
-            auth.create_user("engineer", "engineer123", "engineer", eng_name + " (демо-доступ)", eng_ids[0])
+        auth.create_user("engineer", "engineer123", "engineer", eng_name + " (демо-доступ)", eng_ids[0])
 
         city = db.rows2dicts(db.q("SELECT id FROM zones WHERE kind='city' ORDER BY id"))
         region = db.rows2dicts(db.q("SELECT id FROM zones WHERE kind='region' ORDER BY id"))
@@ -119,8 +114,6 @@ def seed(create_demo: bool | None = None) -> None:
 def demo_requests() -> None:
     """Несколько демонстрационных заявок (только если включён CRM_DEMO)."""
     if os.environ.get("CRM_DEMO", "1") == "0":
-        return
-    if db.setting("demo_loaded") == "1":   # после «Очистить базу от демо» заявки не возвращаются
         return
     if db.q1("SELECT 1 FROM requests LIMIT 1"):
         return

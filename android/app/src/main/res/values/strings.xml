@@ -1,5 +1,3 @@
 <resources>
-    <string name="app_name">Cartridge Engineer</string>
-    <string name="login_button">Войти и получить заявки</string>
-    <string name="check_button">Проверить связь с сервером</string>
+    <string name="app_name">CRM Инженер</string>
 </resources>

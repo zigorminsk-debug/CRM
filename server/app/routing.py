@@ -69,8 +69,7 @@ def plan_day(engineer_id: int, day: date | None = None, persist: bool = False) -
     tasks = day_tasks(engineer_id, day)
     if not tasks:
         return {"ok": True, "day": day.isoformat(), "engineer": eng, "route": [], "total_km": 0.0,
-                "total_minutes": 0, "total_hours": 0.0, "overflow": [],
-                "deliveries": deliveries_for(engineer_id, day)}
+                "total_minutes": 0, "overflow": [], "deliveries": deliveries_for(engineer_id, day)}
 
     start = _start_point(eng)
     start_clock = db.setting("workday_start", "09:00")
@@ -119,7 +118,7 @@ def plan_day(engineer_id: int, day: date | None = None, persist: bool = False) -
             **{k: task[k] for k in ("id", "number", "priority", "status", "address", "lat", "lon",
                                     "contact_person", "phone", "comment", "contractor_name", "unp",
                                     "bank_account", "work_name", "equipment", "serial", "planned_date",
-                                    "time_from", "time_to", "contractor")},
+                                    "contractor")},
             "order": idx,
             "priority_label": PRIORITY_LABEL.get(task["priority"], task["priority"]),
             "status_label": STATUS_LABEL.get(task["status"], task["status"]),

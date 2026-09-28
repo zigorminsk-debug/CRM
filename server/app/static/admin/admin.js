@@ -18,58 +18,15 @@ function toast(msg, ms = 3200) {
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
 
-const asText = (v) => (v === null || v === undefined) ? ''
-  : (typeof v === 'object' ? JSON.stringify(v) : String(v));
-
 async function api(path, opts = {}) {
-  // заголовки объединяем, а не заменяем: кастомные headers не должны
-  // выкидывать Content-Type и Authorization (иначе POST ломается с 422)
-  const o = { ...opts, headers: {
-    'Content-Type': 'application/json',
-    ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}),
-    ...(opts.headers || {}),
-  } };
-  if (o.body && typeof o.body !== 'string' && !(o.body instanceof Blob) && !(o.body instanceof FormData)) o.body = JSON.stringify(o.body);
+  const o = { headers: { 'Content-Type': 'application/json' }, ...opts };
+  if (S.token) o.headers.Authorization = 'Bearer ' + S.token;
+  if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
-  if (!r.ok) throw new Error(asText(data.error) || asText(data.detail) || ('HTTP ' + r.status));
+  if (!r.ok) throw new Error(data.error || data.detail || ('HTTP ' + r.status));
   return data;
-}
-
-/* Телефон: любой ввод -> +375XXXXXXXXX (те же правила, что на сервере). */
-function normalizePhone(raw) {
-  const digits = (raw || '').replace(/[^0-9]/g, '');
-  if (!digits) return '';
-  let rest = digits;
-  if (rest.startsWith('375')) rest = rest.slice(3);
-  else if (rest.startsWith('80') && rest.length === 11) rest = rest.slice(2);
-  else if (rest.startsWith('8') && rest.length === 10) rest = rest.slice(1);
-  else if (rest.startsWith('0') && rest.length === 10) rest = rest.slice(1);
-  if (rest.length === 9 && /^\d+$/.test(rest)) return '+375' + rest;
-  if (rest.length === 7 && rest.startsWith('0')) return '+37517' + rest.slice(1);
-  return '+' + digits;
-}
-function formatPhone(p) {
-  const m = (p || '').match(/^\+375(\d{2})(\d{3})(\d{2})(\d{2})$/);
-  return m ? ('+375 ' + m[1] + ' ' + m[2] + '-' + m[3] + '-' + m[4]) : p;
-}
-/* Поле телефона: при потере фокуса приводим к виду +375 XX XXX-XX-XX. */
-function attachPhoneInput(inputSel, hintSel) {
-  const inp = document.querySelector(inputSel);
-  const hint = hintSel ? document.querySelector(hintSel) : null;
-  if (!inp) return;
-  inp.addEventListener('blur', () => {
-    const raw = inp.value.trim();
-    if (!raw) { if (hint) hint.textContent = ''; return; }
-    const n = normalizePhone(raw);
-    const ok = /^\+375(25|29|33|44|17)\d{7}$/.test(n);
-    inp.value = ok ? formatPhone(n) : n;
-    if (hint) {
-      hint.textContent = ok ? ('Телефон: ' + formatPhone(n))
-        : ('Не похож на белорусский номер (' + n + '). Примеры: 8029 1234567, +375 29 123-45-67, 291234567');
-    }
-  });
 }
 
 const fmtDT = (s) => s ? new Date(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '';
@@ -227,28 +184,14 @@ async function loadEngineers() {
       el('td', {}, e.zones_count), el('td', {}, e.open_tasks),
       el('td', {}, e.absence ? `${e.absence.kind} ${e.absence.date_from}—${e.absence.date_to}` : '—'),
       el('td', {}, e.active ? 'да' : 'нет'),
-      el('td', {}, el('button', { onclick: async () => { const n = prompt('ФИО', e.full_name); if (!n) return; const p = prompt('Телефон', e.phone || ''); await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: n, phone: normalizePhone(p), active: e.active, base_lat: e.base_lat, base_lon: e.base_lon } }); toast('Сохранено'); loadEngineers(); } }, 'Изменить'),
-        ' ',
-        el('button', { onclick: async () => { await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: e.full_name, phone: e.phone, active: e.active ? 0 : 1, base_lat: e.base_lat, base_lon: e.base_lon } }); loadEngineers(); } }, e.active ? 'Отключить' : 'Включить'),
-        ' ',
-        el('button', { class: 'danger', onclick: async () => {
-          const msg = `Удалить инженера ${e.full_name}?\n\n` +
-            `Зон в ведении: ${e.zones_count}. Они останутся без ответственного.\n` +
-            `Открытых заявок: ${e.open_tasks} — станут нераспределёнными.\n` +
-            `Закрытые заявки останутся в истории без имени инженера.`;
-          if (!confirm(msg)) return;
-          try {
-            const r = await api('/api/admin/engineers/' + e.id, { method: 'DELETE' });
-            toast(`Инженер ${r.name} удалён (откреплено заявок: ${r.requests_unlinked})`, 6000);
-            loadEngineers(); loadSelects();
-          } catch (err) { toast(err.message); }
-        } }, 'Удалить')))
+      el('td', {}, el('button', { onclick: async () => { const n = prompt('ФИО', e.full_name); if (!n) return; const p = prompt('Телефон', e.phone || ''); await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: n, phone: p, active: e.active, base_lat: e.base_lat, base_lon: e.base_lon } }); toast('Сохранено'); loadEngineers(); } }, 'Изменить'),
+        el('button', { onclick: async () => { await api('/api/admin/engineers/' + e.id, { method: 'PUT', body: { full_name: e.full_name, phone: e.phone, active: e.active ? 0 : 1, base_lat: e.base_lat, base_lon: e.base_lon } }); loadEngineers(); } }, e.active ? 'Отключить' : 'Включить')))
     );
   }
 }
 $('#e-add').onclick = async () => {
   try {
-    await api('/api/admin/engineers', { method: 'POST', body: { full_name: $('#e-name').value, phone: normalizePhone($('#e-phone').value), base_lat: +$('#e-lat').value || null, base_lon: +$('#e-lon').value || null } });
+    await api('/api/admin/engineers', { method: 'POST', body: { full_name: $('#e-name').value, phone: $('#e-phone').value, base_lat: +$('#e-lat').value || null, base_lon: +$('#e-lon').value || null } });
     toast('Инженер добавлен'); $('#e-name').value = $('#e-phone').value = ''; loadEngineers(); loadSelects();
   } catch (e) { toast(e.message); }
 };
@@ -323,6 +266,9 @@ async function loadSettings() {
     duty_engineer_id: 'Дежурный инженер (ID) при отсутствии ответственного',
   };
   for (const s of list) box.append(el('label', {}, labels[s.key] || s.key, el('input', { 'data-key': s.key, value: s.value || '' })));
+  const users = await api('/api/admin/users');
+  const tb = $('#user-table tbody'); tb.innerHTML = '';
+  for (const u of users) tb.append(el('tr', {}, el('td', {}, u.id), el('td', {}, u.username), el('td', {}, u.role), el('td', {}, u.full_name || ''), el('td', {}, u.engineer_id || '—')));
 }
 $('#set-save').onclick = async () => {
   const values = {};
@@ -330,124 +276,10 @@ $('#set-save').onclick = async () => {
   await api('/api/admin/settings', { method: 'POST', body: { values } });
   toast('Настройки сохранены');
 };
-
-/* ------------------------------------------------- очистка демо-данных */
-$('#purge-demo').onclick = async () => {
-  if (!confirm('Удалить ВСЕ демо-записи?\n\nУдаляются: заявки, доставки, контрагенты, инженеры, закрепления зон, отпуска, лента событий.\nОстаются: зоны, справочник работ, настройки, пользователи.')) return;
+$('#u-add').onclick = async () => {
   try {
-    const r = await api('/api/admin/purge-demo', { method: 'POST' });
-    toast(r.message || 'Демо-данные удалены', 6000);
-    loadRequests();
-  } catch (e) { toast(e.message); }
-};
-
-/* ------------------------------------------------ резервная копия базы */
-async function loadBackupInfo() {
-  try {
-    const i = await api('/api/admin/backup/info');
-    const mb = (i.db_size / 1048576).toFixed(2);
-    const last = (i.backups || [])[0];
-    $('#backup-info').textContent = `Папка базы: ${i.data_dir} · файл ${i.db_file} (${mb} МБ)`
-      + (last ? ` · последняя копия: ${last.name} (${(last.size / 1048576).toFixed(2)} МБ, ${last.modified})` : '');
-  } catch (e) { /* не критично */ }
-}
-
-$('#backup-dl').onclick = async () => {
-  try {
-    const r = await fetch('/api/admin/backup', { headers: { Authorization: 'Bearer ' + S.token } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const blob = await r.blob();
-    const cd = r.headers.get('Content-Disposition') || '';
-    const m = cd.match(/filename="?([^";]+)"?/);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = m ? m[1] : 'crm-backup.sqlite';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast('Бэкап скачан: ' + a.download, 6000);
-    loadBackupInfo();
-  } catch (e) { toast('Не удалось выгрузить бэкап: ' + e.message); }
-};
-
-$('#backup-restore').onclick = async () => {
-  const inp = $('#backup-file');
-  const file = inp.files && inp.files[0];
-  if (!file) { toast('Сначала выберите файл бэкапа (.sqlite)'); return; }
-  if (!confirm(`Заменить текущую базу файлом «${file.name}»?\n\nТекущие данные перед заменой будут автоматически сохранены в data/backups.`)) return;
-  try {
-    const r = await api('/api/admin/backup/restore', { method: 'POST', body: file,
-      headers: { 'Content-Type': 'application/octet-stream' } });
-    toast(r.message + (r.safety_copy ? ' (прошлая база: ' + r.safety_copy + ')' : ''), 9000);
-    setTimeout(() => location.reload(), 2500);
-  } catch (e) { toast('Восстановление не выполнено: ' + e.message, 9000); }
-};
-
-/* --------------------------------------------- пользователи (4 раздела) */
-const ROLE_LABELS = { client: 'Клиент', engineer: 'Инженер', operator: 'Диспетчер', admin: 'Администратор' };
-const NU = { role: 'client', users: [] };
-
-async function loadUsers() {
-  NU.users = await api('/api/admin/users');
-  renderUsers();
-  const engs = await api('/api/admin/engineers');
-  const sel = $('#nu-eng'); const keep = sel.value;
-  sel.innerHTML = '<option value="">— не привязан к инженеру —</option>';
-  engs.filter((e) => e.active).forEach((e) => sel.append(el('option', { value: e.id }, e.full_name)));
-  sel.value = keep;
-}
-
-function renderUsers() {
-  const role = NU.role;
-  document.querySelectorAll('#role-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.role === role));
-  const isClient = role === 'client', isEngineer = role === 'engineer';
-  $('#nu-client-fields').hidden = !isClient;
-  $('#nu-engineer-fields').hidden = !isEngineer;
-  $('#nu-role-hint').textContent = 'Новый пользователь попадёт в раздел «' + ROLE_LABELS[role] + '»';
-  $('#nu-col-extra').textContent = isClient ? 'Организация / УНП' : isEngineer ? 'Привязка к инженеру' : 'Роль';
-  const tb = $('#nu-table tbody'); tb.innerHTML = '';
-  for (const u of NU.users.filter((x) => x.role === role)) {
-    const extra = isClient ? (u.company || '—') + ' · ' + (u.unp || 'нет УНП')
-      : isEngineer ? (u.engineer_id ? 'инженер #' + u.engineer_id : '— не привязан —')
-      : ROLE_LABELS[u.role];
-    tb.append(el('tr', {},
-      el('td', {}, u.id),
-      el('td', {}, el('b', {}, u.username)),
-      el('td', {}, u.full_name || '—'),
-      el('td', {}, extra),
-      el('td', {}, u.active ? el('span', { class: 'badge b-planned' }, 'активен') : el('span', { class: 'badge b-cancelled' }, 'заблокирован')),
-      el('td', {},
-        el('button', { onclick: async () => {
-          const p = prompt('Новый пароль для ' + u.username + ' (мин. 6 символов):');
-          if (p === null) return;
-          try { await api(`/api/admin/users/${u.id}/password`, { method: 'POST', body: { password: p } }); toast('Пароль обновлён'); } catch (e) { toast(e.message); }
-        } }, 'Пароль'),
-        ' ',
-        el('button', { onclick: async () => {
-          try { await api(`/api/admin/users/${u.id}/active`, { method: 'POST', body: { active: u.active ? 0 : 1 } }); loadUsers(); } catch (e) { toast(e.message); }
-        } }, u.active ? 'Блокировать' : 'Разблокировать'),
-        ' ',
-        el('button', { class: 'danger', onclick: async () => {
-          if (!confirm('Удалить пользователя ' + u.username + '?')) return;
-          try { await api(`/api/admin/users/${u.id}`, { method: 'DELETE' }); loadUsers(); toast('Удалено'); } catch (e) { toast(e.message); }
-        } }, 'Удалить'),
-      )));
-  }
-  if (!tb.children.length) tb.append(el('tr', {}, el('td', { colspan: 6 }, 'В этом разделе пока нет пользователей')));
-}
-
-document.querySelectorAll('#role-tabs button').forEach((b) => b.onclick = () => { NU.role = b.dataset.role; renderUsers(); });
-$('#nu-add').onclick = async () => {
-  const body = {
-    username: $('#nu-username').value.trim(), password: $('#nu-pass').value,
-    full_name: $('#nu-full').value.trim(), role: NU.role,
-  };
-  if (NU.role === 'client') { body.company = $('#nu-company').value.trim(); body.unp = $('#nu-unp').value.trim(); }
-  if (NU.role === 'engineer' && $('#nu-eng').value) body.engineer_id = +$('#nu-eng').value;
-  try {
-    await api('/api/admin/users', { method: 'POST', body });
-    toast('Пользователь создан');
-    ['#nu-username', '#nu-pass', '#nu-full', '#nu-company', '#nu-unp'].forEach((s) => { $(s).value = ''; });
-    loadUsers();
+    await api('/api/admin/users', { method: 'POST', body: { username: $('#u-user').value, password: $('#u-pass').value, role: $('#u-role').value, full_name: $('#u-user').value, engineer_id: $('#u-eng').value ? +$('#u-eng').value : null } });
+    toast('Пользователь создан'); loadSettings();
   } catch (e) { toast(e.message); }
 };
 
@@ -497,7 +329,7 @@ async function loadSelects() {
 function loadTab(name) {
   return ({
     requests: loadRequests, engineers: loadEngineers, zones: loadZones, absences: loadAbsences,
-    works: loadWorks, users: loadUsers, reports: loadReports, settings: loadSettings, audit: loadAudit,
+    works: loadWorks, reports: loadReports, settings: loadSettings, audit: loadAudit,
   }[name] || (() => {}))();
 }
 
@@ -520,7 +352,6 @@ async function boot() {
   $('#r-from').value = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   $('#r-to').value = new Date().toISOString().slice(0, 10);
   statusOptions(); await loadSelects(); await loadRequests(); startLive();
-  loadBackupInfo();
 }
 function showLogin() { $('#login').hidden = false; $('#app').hidden = true; }
 

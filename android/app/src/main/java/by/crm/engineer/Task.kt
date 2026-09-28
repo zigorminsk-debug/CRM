@@ -23,17 +23,12 @@ data class Task(
     val equipment: String,
     val serial: String,
     val plannedDate: String,
-    val timeFrom: String,
-    val timeTo: String,
     val legKm: Double,
     val driveMinutes: Int,
     val workMinutes: Int,
     val zone: String
 ) {
     val hasCoords: Boolean get() = lat != 0.0 && lon != 0.0
-    /** Желаемое окно визита «с … по …» (если указано диспетчером). */
-    val timeWindow: String
-        get() = if (timeFrom.isNotBlank()) "с $timeFrom по ${timeTo.ifBlank { "…" }}" else ""
     val navIntent: String get() = "yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon"
     val navHttps: String get() = "https://yandex.ru/maps/?rtext=$lat,$lon&rtt=auto"
 
@@ -58,8 +53,6 @@ data class Task(
             equipment = j.optString("equipment"),
             serial = j.optString("serial"),
             plannedDate = j.optString("planned_date"),
-            timeFrom = j.optString("time_from"),
-            timeTo = j.optString("time_to"),
             legKm = j.optDouble("leg_km", 0.0),
             driveMinutes = j.optInt("drive_minutes"),
             workMinutes = j.optInt("work_minutes"),
