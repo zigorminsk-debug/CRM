@@ -16,6 +16,7 @@ ROOT = os.path.dirname(SPEC_DIR)       # корень репозитория
 datas = [
     (os.path.join(SPEC_DIR, "app", "static"), "app/static"),
     (os.path.join(SPEC_DIR, "app", "data", "minsk_streets.csv"), "app/data"),
+    (os.path.join(SPEC_DIR, "app", "data", "minsk_houses.csv.gz"), "app/data"),
     (os.path.join(ROOT, "VERSION"), "."),
     (os.path.join(SPEC_DIR, "build", "BUILD"), "."),
     (os.path.join(ROOT, "icons", "app.ico"), "."),

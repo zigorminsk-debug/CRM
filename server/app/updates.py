@@ -44,6 +44,10 @@ _ROOT = _ROOTS[1]
 
 _cache: dict = {"at": 0.0, "data": None, "error": ""}
 
+# На Windows urllib подхватывает системный прокси: если тот не пускает github.com,
+# сервер молча раздаёт устаревшие сведения об обновлениях. Ходим напрямую.
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def _read_text(path: str, default: str = "") -> str:
     try:
@@ -121,7 +125,7 @@ def _fetch(url: str) -> dict:
     token = os.environ.get("CRM_UPDATE_TOKEN", "").strip()
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with _opener.open(req, timeout=TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

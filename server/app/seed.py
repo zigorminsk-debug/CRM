@@ -63,6 +63,12 @@ def seed(create_demo: bool | None = None) -> None:
     zones.ensure_zones()
     ensure_works()
     geocode.load_street_index()   # локальный справочник адресов (работает без интернета)
+    nh = geocode.load_house_index()   # ДОМА с координатами (точный адрес -> точка)
+    if nh:
+        db.audit("system", "house_index.bundled", {"rows": nh})
+    nh = geocode.load_house_index()   # ДОМА с координатами (точный адрес -> точка)
+    if nh:
+        db.audit("system", "house_index.bundled", {"rows": nh})
     for k, v in DEFAULT_SETTINGS.items():
         if db.setting(k) is None:
             db.set_setting(k, v, actor="bootstrap")

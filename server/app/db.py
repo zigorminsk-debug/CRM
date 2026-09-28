@@ -267,6 +267,14 @@ CREATE TABLE IF NOT EXISTS street_index (
 CREATE INDEX IF NOT EXISTS idx_street_key ON street_index(key);
 
 -- Рабочие дни (праздники РБ можно выключить)
+CREATE TABLE IF NOT EXISTS house_index (
+    street_key TEXT NOT NULL,
+    house      TEXT NOT NULL,
+    lat        REAL NOT NULL,
+    lon        REAL NOT NULL,
+    PRIMARY KEY (street_key, house)
+);
+
 CREATE TABLE IF NOT EXISTS holidays (
     day  TEXT PRIMARY KEY,
     name TEXT
@@ -424,6 +432,18 @@ def execute(sql: str, args: tuple | list = ()) -> int:
     with tx() as conn:
         cur = conn.execute(sql, args)
         return cur.lastrowid
+
+
+def executemany(sql: str, rows: list) -> None:
+    """Массовая вставка одним транзакционным заходом (индексы адресов)."""
+    with tx() as conn:
+        conn.executemany(sql, rows)
+
+
+def executemany(sql: str, rows: list) -> None:
+    """Массовая вставка одним транзакционным заходом (индексы адресов)."""
+    with tx() as conn:
+        conn.executemany(sql, rows)
 
 
 def row2dict(row: sqlite3.Row | None) -> dict | None:

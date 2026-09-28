@@ -21,9 +21,15 @@ UA = "CRM-CartridgeService/1.0 (Minsk; contact: ziv@csl.by)"
 _last_nominatim = 0.0
 
 
+# Запросы к геокодерам — в обход системного прокси Windows: прокси часто
+# не пускает nominatim.openstreetmap.org, и адреса молча падают в локальный
+# справочник с точностью до улицы.
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _http_json(url: str, timeout: int = 12) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _opener.open(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -139,6 +145,97 @@ def load_street_index(csv_path: str | None = None) -> int:
     return n
 
 
+def load_house_index(gz_path: str | None = None) -> int:
+    """Загружает дома (street;house;lat;lon) из сжатого справочника в house_index.
+
+    Перезагружает только если изменился файл (контроль по размеру+mtime в settings).
+    """
+    gz_path = gz_path or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "data", "minsk_houses.csv.gz")
+    if not os.path.exists(gz_path):
+        return 0
+    marker = f"{os.path.getsize(gz_path)}:{int(os.path.getmtime(gz_path))}"
+    if db.setting("house_index_ver") == marker:
+        return 0
+    import gzip
+    n, replaced = 0, False
+    with gzip.open(gz_path, "rt", encoding="utf-8") as fh:
+        batch = []
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(";")
+            if len(parts) < 4:
+                continue
+            name, house, lat, lon = parts[0], parts[1].lower(), parts[2], parts[3]
+            try:
+                batch.append((street_key(name), house, float(lat.replace(",", ".")),
+                              float(lon.replace(",", "."))))
+            except (ValueError, TypeError):
+                continue
+            if len(batch) >= 5000:
+                if not replaced:
+                    db.execute("DELETE FROM house_index")
+                    replaced = True
+                db.executemany(
+                    "INSERT OR REPLACE INTO house_index(street_key,house,lat,lon) VALUES(?,?,?,?)",
+                    batch)
+                n += len(batch)
+                batch = []
+    if batch:
+        if not replaced:
+            db.execute("DELETE FROM house_index")
+            replaced = True
+        db.executemany(
+            "INSERT OR REPLACE INTO house_index(street_key,house,lat,lon) VALUES(?,?,?,?)", batch)
+        n += len(batch)
+    if replaced:
+        db.set_setting("house_index_ver", marker)
+        db.audit("system", "house_index.load", {"rows": n})
+    return n
+
+
+HOUSE_RE = re.compile(r"(?:дом|д)\.?\s*(\d+)\s*([а-яa-z]{0,2})\b|\b(\d+)\s*([а-яa-z]{0,2})?\b")
+
+
+def parse_house(address: str) -> str:
+    """«ул. Дзержинского, д. 123к2» -> «123к2» (нормализованный номер дома)."""
+    t = _norm(address)
+    m = re.search(r"(?:дом|д)\s+(\d+)\s*([а-я]{0,2})\b", t)
+    if not m:
+        m = re.search(r"(\d+)\s*([а-я]{0,2})\b", t)
+    if not m:
+        return ""
+    num = m.group(1).lstrip("0") or "0"
+    suf = (m.group(2) or "").lower()
+    return num + (suf if suf else "")
+
+
+def house_lookup(street_key_val: str, house: str) -> dict | None:
+    """Точный дом из индекса: сначала точный номер, потом совпадение по цифровой части."""
+    if not street_key_val or not house:
+        return None
+    rows = db.rows2dicts(db.q("SELECT house, lat, lon FROM house_index WHERE street_key=?",
+                              (street_key_val,)))
+    if not rows:
+        return None
+    for r in rows:                                   # точное совпадение
+        if r["house"] == house:
+            return {"lat": r["lat"], "lon": r["lon"], "house": r["house"]}
+    m_num = re.match(r"(\d+)", house)
+    if not m_num:
+        return None
+    num = m_num.group(1).lstrip("0") or "0"
+    best = None
+    for r in rows:                                   # тот же цифровой блок: 123 ≈ 123к2/123а
+        m = re.match(r"(\d+)", r["house"])
+        if m and (m.group(1).lstrip("0") or "0") == num:
+            if best is None or len(r["house"]) < len(best["house"]):
+                best = r
+    return {"lat": best["lat"], "lon": best["lon"], "house": best["house"]} if best else None
+
+
 def search_streets(q: str, settlement: str = "", limit: int = 8) -> list[dict]:
     """Подсказки улиц для формы: совпадения по ключевым словам названия."""
     t = _norm(q)
@@ -215,6 +312,17 @@ def local_lookup(address: str) -> dict | None:
     if not best:
         return None
     approx = best["kind"] in ("microdistrict", "settlement")
+    # если в адресе есть номер дома — попробуем точный дом из индекса
+    house = parse_house(address)
+    if house and best["kind"] == "street":
+        h = house_lookup(best["key"], house)
+        if h:
+            return {"lat": h["lat"], "lon": h["lon"], "provider": "local_house",
+                    "text": f"{best['name']} {h['house']}"
+                            + ((" (" + best["district"] + ")") if best["district"] else ""),
+                    "district": best["district"] or "",
+                    "raw": {"street": best["name"], "house": h["house"]},
+                    "approx": False, "precision": "house"}
     return {"lat": best["lat"], "lon": best["lon"], "provider": "local_index",
             "text": best["name"] + ((" (" + best["district"] + ")") if best["district"] else ""),
             "district": best["district"] or "", "raw": {"street": best["name"], "kind": best["kind"]},
@@ -327,6 +435,10 @@ def resolve(address: str, use_cache: bool = True) -> dict:
     res = geocode_yandex(query) or geocode_nominatim(query) or local_lookup(address)
     if res:
         precision = res.get("precision") or "exact"
+        if precision == "house":
+            precision = "exact"      # дом из локального индекса — это точные координаты
+        if precision == "house":
+            precision = "exact"      # дом из локального индекса — это точные координаты
         z = zones.resolve_zone(res["lat"], res["lon"], res.get("district", ""),
                                res.get("text", "") + " " + address)
         if precision != "exact":
