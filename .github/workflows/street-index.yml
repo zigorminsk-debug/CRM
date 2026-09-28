@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 4 1 * *"   # раз в месяц, 1-го числа
+  push:
+    paths:
+      - "tools/build_street_index.py"   # ручной запуск: любое изменение сборщика
 
 permissions:
   contents: write
