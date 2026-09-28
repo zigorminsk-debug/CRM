@@ -22,30 +22,38 @@ zig_bin() {
   python3 -c 'import ziglang,os;print(os.path.join(os.path.dirname(ziglang.__file__),"zig"))' 2>/dev/null || true
 }
 
-echo "== Сборка CRM-Client (режим: $MODE, версия: $VERSION) =="
-rm -f "$OUT"
+echo "== Сборка CRM-Client + CRM-Web (режим: $MODE, версия: $VERSION) =="
+rm -f "$OUT" dist/CRM-Web.exe
 
 build_mingw() {
+  local src="${1:-$SRC}"
   if command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
-    x86_64-w64-mingw32-g++ $FLAGS -static $SRC -o "$OUT" $LIBS
+    x86_64-w64-mingw32-g++ $FLAGS -static "$src" -o "$OUT" $LIBS
     return 0
   fi
   return 1
 }
 build_zig() {
+  local src="${1:-$SRC}"
   local zb; zb="$(zig_bin)"
   if [[ -z "$zb" || ! -x "$zb" ]]; then
     echo "Не найден zig. Установите: pip install ziglang" >&2
     return 1
   fi
-  "$zb" c++ -target x86_64-windows-gnu $FLAGS -static $SRC -o "$OUT" $LIBS
+  "$zb" c++ -target x86_64-windows-gnu $FLAGS -static "$src" -o "$OUT" $LIBS
 }
 
-case "$MODE" in
-  mingw) build_mingw ;;
-  zig)   build_zig ;;
-  *)     build_mingw || build_zig ;;
-esac
+build_one() {
+  local src="$1" out="$2"
+  OUT="$out"
+  if [[ "$MODE" == mingw ]]; then build_mingw "$src"
+  elif [[ "$MODE" == zig ]]; then build_zig "$src"
+  else build_mingw "$src" || build_zig "$src"
+  fi
+}
 
-ls -la "$OUT"
+build_one "$SRC" "$OUT"                       # CRM-Client.exe
+build_one "web.cpp" "dist/CRM-Web.exe"        # лаунчер ярлыков админка/диспетчер
+
+ls -la dist/
 echo "Версия: $VERSION"

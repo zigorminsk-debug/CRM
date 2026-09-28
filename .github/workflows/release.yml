@@ -103,6 +103,7 @@ jobs:
           pip install -q ziglang
           bash clientapp/build.sh
           cp clientapp/dist/CRM-Client.exe winclient/dist/CRM-Client.exe
+          cp clientapp/dist/CRM-Web.exe winclient/dist/CRM-Web.exe
       - name: Сохранить exe в артефакты
         uses: actions/upload-artifact@v4
         with:
@@ -110,6 +111,7 @@ jobs:
           path: |
             winclient/dist/CRM-Windows.exe
             winclient/dist/CRM-Client.exe
+            winclient/dist/CRM-Web.exe
           if-no-files-found: error
       - name: Журнал сборки exe
         if: always()
@@ -192,6 +194,7 @@ jobs:
           cp artifacts/CRM-Server.exe setup/
           cp artifacts/CRM-Windows.exe setup/
           cp artifacts/CRM-Client.exe setup/
+          cp artifacts/CRM-Web.exe setup/
           cd setup
           makensis -V2 crm-server-setup.nsi
           makensis -V2 crm-windows-setup.nsi

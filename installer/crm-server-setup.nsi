@@ -110,6 +110,7 @@ FunctionEnd
 Section "Сервер"
   SetOutPath "$INSTDIR"
   File "/oname=CRM-Server.exe" "CRM-Server.exe"
+  File "/oname=CRM-Web.exe" "CRM-Web.exe"
   WriteUninstaller "$INSTDIR\Uninstall-Server.exe"
 
   ; порт в data\port.txt — сервер сам подхватит его при запуске
@@ -132,19 +133,15 @@ Section "Сервер"
   ; меню «Пуск»
   CreateDirectory "$SMPROGRAMS\Cartridge Engineer"
   CreateShortCut "$SMPROGRAMS\Cartridge Engineer\Сервер (окно управления).lnk" "$INSTDIR\CRM-Server.exe"
-  WriteINIStr "$SMPROGRAMS\Cartridge Engineer\Админка.url" "InternetShortcut" "URL" "http://127.0.0.1:$Port/admin"
-  WriteINIStr "$SMPROGRAMS\Cartridge Engineer\Диспетчер.url" "InternetShortcut" "URL" "http://127.0.0.1:$Port/dispatcher"
+  CreateShortCut "$SMPROGRAMS\Cartridge Engineer\Админка (веб).lnk" "$INSTDIR\CRM-Web.exe" "admin" "$INSTDIR\CRM-Server.exe" 0
+  CreateShortCut "$SMPROGRAMS\Cartridge Engineer\Диспетчер (веб).lnk" "$INSTDIR\CRM-Web.exe" "dispatcher" "$INSTDIR\CRM-Server.exe" 0
   CreateShortCut "$SMPROGRAMS\Cartridge Engineer\Удаление сервера.lnk" "$INSTDIR\Uninstall-Server.exe"
 
   ; рабочий стол
   CreateShortCut "$DESKTOP\Cartridge Engineer — Сервер.lnk" "$INSTDIR\CRM-Server.exe"
   ${If} $DeskH == ${BST_CHECKED}
-    WriteINIStr "$DESKTOP\Админка (Cartridge Engineer).url" "InternetShortcut" "URL" "http://127.0.0.1:$Port/admin"
-    WriteINIStr "$DESKTOP\Админка (Cartridge Engineer).url" "InternetShortcut" "IconIndex" "0"
-    WriteINIStr "$DESKTOP\Админка (Cartridge Engineer).url" "InternetShortcut" "IconFile" "$INSTDIR\CRM-Server.exe"
-    WriteINIStr "$DESKTOP\Диспетчер (Cartridge Engineer).url" "InternetShortcut" "URL" "http://127.0.0.1:$Port/dispatcher"
-    WriteINIStr "$DESKTOP\Диспетчер (Cartridge Engineer).url" "InternetShortcut" "IconIndex" "0"
-    WriteINIStr "$DESKTOP\Диспетчер (Cartridge Engineer).url" "InternetShortcut" "IconFile" "$INSTDIR\CRM-Windows.exe"
+    CreateShortCut "$DESKTOP\Админка (Cartridge Engineer).lnk" "$INSTDIR\CRM-Web.exe" "admin" "$INSTDIR\CRM-Server.exe" 0 "" "" "Админка Cartridge Engineer"
+    CreateShortCut "$DESKTOP\Диспетчер (Cartridge Engineer).lnk" "$INSTDIR\CRM-Web.exe" "dispatcher" "$INSTDIR\CRM-Server.exe" 0 "" "" "Диспетчерская Cartridge Engineer"
   ${EndIf}
 
   ; сведения об установке (для «Установка и удаление программ»)
@@ -169,10 +166,11 @@ Section "Uninstall"
     nsExec::Exec 'netsh advfirewall firewall delete rule name="Cartridge Engineer $1"'
   ${EndIf}
   Delete "$DESKTOP\Cartridge Engineer — Сервер.lnk"
-  Delete "$DESKTOP\Админка (Cartridge Engineer).url"
-  Delete "$DESKTOP\Диспетчер (Cartridge Engineer).url"
+  Delete "$DESKTOP\Админка (Cartridge Engineer).lnk"
+  Delete "$DESKTOP\Диспетчер (Cartridge Engineer).lnk"
   RMDir /r "$SMPROGRAMS\Cartridge Engineer"
   Delete "$INSTDIR\CRM-Server.exe"
+  Delete "$INSTDIR\CRM-Web.exe"
   Delete "$INSTDIR\Uninstall-Server.exe"
   Delete "$INSTDIR\data\port.txt"
   RMDir "$INSTDIR\data"
