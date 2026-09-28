@@ -291,16 +291,53 @@ def main() -> None:
     run_console(host, port)
 
 
+def _health_ok(port: int, timeout: float = 2.0) -> bool:
+    """GET /api/health в обход системного прокси.
+
+    urllib на Windows подхватывает прокси из настроек системы, и тогда даже
+    запрос к 127.0.0.1 уходит на прокси и падает — из-за этого health-проверка
+    не проходит на машинах с прокси. ProxyHandler({}) отключает прокси."""
+    try:
+        import urllib.request as _u
+        op = _u.build_opener(_u.ProxyHandler({}))
+        with op.open(f"http://127.0.0.1:{port}/api/health", timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _info_box(text: str) -> None:
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, "Cartridge Engineer — сервер", 0x40)
+    except Exception:
+        pass
+
+
 def run_background(host: str, port: int) -> None:
     """Фоновый запуск двойным щелчком: адреса на экране, через 20 с консоль
-    скрывается, сервер продолжает работать в этом же процессе."""
+    скрывается, сервер работает в этом же процессе до остановки
+    (Shift + запуск → «Остановить фоновый», taskkill, выключение ПК).
+
+    Процесс завершается ТОЛЬКО принудительно (или повторным запуском на
+    занятом порту). Никаких «чистых» выходов из скрытого состояния: при
+    чистом выходе PyInstaller-загрузчик пытается удалить свою временную
+    папку _MEIxxxx и при неудаче показывает диалог «Failed to remove
+    temporary directory».
+    """
     busy = _can_bind(host, port)
+    if busy and _health_ok(port):
+        # уже работает наш сервер (другая копия) — не плодим вторую
+        _info_box(f"Сервер уже запущен и работает (порт {port}).\n\n"
+                  f"Адрес: http://127.0.0.1:{port}\n\n"
+                  "Окно управления (запуск/остановка): запустите\n"
+                  "CRM-Server.exe с зажатым Shift.")
+        raise SystemExit(0)
     if busy:
         _fatal(f"Не удалось занять порт {port}: {busy}\n\n"
-               f"Порт {port} уже занят — возможно, CRM-Server.exe уже запущен в фоне.\n"
-               "Запустите CRM-Server.exe с зажатым Shift — окно управления покажет\n"
-               "работающий сервер и предложит «Остановить фоновый».\n\n"
-               "Или снимите задачу: taskkill /F /IM CRM-Server.exe")
+               "Освободите порт или укажите другой:\n"
+               "    set PORT=8010 && CRM-Server.exe\n\n"
+               "Окно управления: запустите CRM-Server.exe с зажатым Shift.")
         raise SystemExit(1)
 
     import threading
@@ -316,27 +353,27 @@ def run_background(host: str, port: int) -> None:
     th = threading.Thread(target=server.run, daemon=True)
     th.start()
 
-    ok = False
-    for _ in range(40):                       # до 20 секунд ждём /api/health
-        if server.started:
-            try:
-                import urllib.request
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
-                    ok = r.status == 200
-                    break
-            except Exception:
-                pass
+    for _ in range(30):                    # до 15 секунд ждём фактический старт uvicorn
+        if server.started or not th.is_alive():
+            break
         time.sleep(0.5)
 
-    if ok:
+    if server.started:
+        # Готовность определяем по факту старта uvicorn, БЕЗ HTTP-проверки:
+        # системный прокси перенаправлял даже 127.0.0.1, окно оставалось
+        # открытым. Здесь проверка не нужна: порт проверен заранее.
         print("\nСервер работает в фоне. Это окно закроется через 20 секунд…")
         print("(окно управления: запустите CRM-Server.exe с зажатым Shift)")
         time.sleep(20)
         _hide_console()
-        th.join()                              # живём, пока работает сервер
+        th.join()                          # работаем, пока сервер не остановят
     else:
-        print("\nСервер не ответил — окно оставлено открытым для диагностики.")
-        th.join()
+        print("\nСервер не смог запуститься (причина выше в журнале).")
+        try:
+            input("Нажмите Enter, чтобы закрыть окно…")
+        except EOFError:
+            pass
+
 
 def _parse_and_setup() -> tuple[str, int, bool]:
     args = _parse_args()

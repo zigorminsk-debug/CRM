@@ -79,7 +79,8 @@ def _bg_server_alive(port: int) -> bool:
     """На порту отвечает наш CRM-сервер (health)?"""
     try:
         import urllib.request
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
+        op = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # без системного прокси
+        with op.open(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
             return r.status == 200
     except Exception:
         return False
