@@ -23,9 +23,18 @@ jobs:
         with:
           python-version: "3.11"
       - name: Сбор данных из OpenStreetMap (Overpass)
-        run: python3 tools/build_street_index.py
+        run: |
+          python3 tools/build_street_index.py 2>&1 | tee harvest.log
+          test ${PIPESTATUS[0]} -eq 0
         env:
           PYTHONUNBUFFERED: "1"
+      - name: Лог сборки (всегда выгружаем)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harvest-log
+          path: harvest.log
+          if-no-files-found: ignore
       - name: Коммит обновлённого справочника
         run: |
           git config user.name "crm-index-bot"
