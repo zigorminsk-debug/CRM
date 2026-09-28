@@ -57,6 +57,28 @@ PORT=8000 python3 run.py
 Открыть в браузере: `http://<IP сервера>:8000/` — там ссылки на админку, мобильное приложение,
 файлы приложений (`/downloads`) и API-документацию (`/docs`).
 
+**Три веб-интерфейса (всё открывается в браузере):**
+* `/dispatcher` — **консоль диспетчера**: приём заявок (та же форма, что в Windows-клиенте),
+  журнал заявок с поиском, переназначение/перенос/смена статуса. Вход — диспетчер или администратор.
+* `/client` — **кабинет клиента**: организация подаёт заявки сама и видит свои статусы и доставки.
+  Логин выдаёт администратор (реквизиты привязываются к УНП организации).
+* `/admin` — **админка**: заявки, инженеры, зоны, отпуска, работ, **пользователи** (4 раздела:
+  клиенты, инженеры, диспетчеры, администраторы), отчёты, настройки и кнопка
+  **«Очистить базу от демо-записей»** (Настройки → Обслуживание базы).
+
+Роли пользователей: `admin` (администратор), `operator` (диспетчер), `engineer` (инженер),
+`client` (клиент — кабинет /client, привязка к организации по УНП).
+
+**Вариант без Python — готовый `CRM-Server.exe`:** скопируйте его в папку с правами записи
+(например, `C:\CRM`) и запустите. Откроется окно управления: порт, кнопки «Запустить» /
+«Остановить» / «Открыть в браузере» и журнал. Если порт занят — впишите другой (например, 8010).
+Сервер стартует автоматически на порту 8000; база (`data\crm.sqlite3`) и папка раздачи создаются
+рядом с exe. Консольный режим для служб и CI: `CRM-Server.exe --no-gui --port 8010`
+(также понимает переменные окружения `PORT`, `HOST`, `CRM_DB`).
+Собрать его можно локально (`server/build_exe.sh`) или взять из сборки Actions/релиза.
+В окне сервера есть кнопка **«Разрешить в брандмауэре»** — одним кликом открывает
+входящий порт (телефоны и другие ПК перестают получать «недоступен»).
+
 ### 1.2 Windows-клиент
 
 Готовый файл: **`downloads/CRM-Windows.exe`** (портативный, x64, ничего устанавливать не нужно).
@@ -135,7 +157,7 @@ CRM_BUILD_NUMBER=100 python3 tools/version.py   # 1.0.100
 ```
 
 **Релиз.** Из ветки `main` workflow публикует GitHub Release с тегом `v<версия>` и файлами
-`CRM-Windows.exe`, `CRM-Engineer.apk`, `update.json`, `crm-server.zip`, `crm-sources.zip`, `README.txt`.
+`CRM-Windows.exe`, `CRM-Engineer.apk`, `CRM-Server.exe`, `update.json`, `crm-server.zip`, `crm-sources.zip`, `README.txt`.
 Адрес манифеста постоянный:
 `https://github.com/<owner>/CRM/releases/latest/download/update.json`.
 
@@ -175,6 +197,8 @@ server/                 сервер: FastAPI + SQLite
   app/static/mobile/    мобильное приложение инженера (PWA)
   app/updates.py        версии и автообновление: манифест релиза GitHub для /api/updates
   tests/e2e_test.py     сквозной тест всей цепочки (39 проверок)
+  build_exe.sh          сборка сервера в автономный CRM-Server.exe (PyInstaller, без Python)
+  crm-server.spec       спецификация сборки exe: ресурсы, версия, скрытые импорты
 winclient/              Windows-клиент на C++/Win32 (WinHTTP): форма, автообновление, сборка exe
   build_windows.sh      сборка exe: версия, ресурсы, подпись постоянным ключом
 android/                приложение инженера для Android (Kotlin): Updater.kt — автообновление APK
@@ -210,6 +234,9 @@ SIGN_PFX=../signing/windows-signing.pfx SIGN_PFX_PASS=crm-windows-key-2026 ./bui
 cd android
 CRM_KEYSTORE_FILE=../signing/android-release.p12 CRM_KEYSTORE_PASSWORD=crm-android-key-2026 \
   CRM_KEY_ALIAS=crm-engineer ./build_apk.sh
+
+# сервер одним файлом CRM-Server.exe (PyInstaller; на Windows — exe, на Linux — бинарник)
+cd server && ./build_exe.sh
 
 # пакеты для раздачи + манифест обновления
 cd .. && CRM_BUILD_NUMBER=$(git rev-list --count HEAD) python3 tools/pack_downloads.py

@@ -23,12 +23,20 @@ def verify_password(password: str, salt: str, expected: str) -> bool:
 
 
 def create_user(username: str, password: str, role: str, full_name: str,
-                engineer_id: int | None = None) -> int:
+                engineer_id: int | None = None, company: str | None = None,
+                unp: str | None = None) -> int:
     salt = secrets.token_hex(16)
     return db.execute(
-        """INSERT INTO users(username,password_hash,salt,role,full_name,engineer_id,created_at)
-           VALUES(?,?,?,?,?,?,?)""",
-        (username, hash_password(password, salt), salt, role, full_name, engineer_id, db.now()))
+        """INSERT INTO users(username,password_hash,salt,role,full_name,engineer_id,company,unp,created_at)
+           VALUES(?,?,?,?,?,?,?,?,?)""",
+        (username, hash_password(password, salt), salt, role, full_name, engineer_id,
+         company, unp, db.now()))
+
+
+def set_password(user_id: int, password: str) -> None:
+    salt = secrets.token_hex(16)
+    db.execute("UPDATE users SET password_hash=?, salt=? WHERE id=?",
+               (hash_password(password, salt), salt, user_id))
 
 
 def login(username: str, password: str, device: str = "") -> dict:

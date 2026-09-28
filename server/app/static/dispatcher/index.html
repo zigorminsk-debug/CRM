@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cartridge Engineer — консоль диспетчера</title>
+<link rel="icon" href="/static/mobile/icon-32.png">
+<link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+<header>
+  <div class="brand">Cartridge Engineer · Диспетчер <span>приём заявок</span></div>
+  <nav id="tabs">
+    <button data-tab="new" class="active">Новая заявка</button>
+    <button data-tab="list">Заявки</button>
+  </nav>
+  <div class="user"><span id="whoami">—</span>
+    <a class="btn" href="/admin">Админка</a>
+    <a class="btn" href="/client">Кабинет клиента</a>
+    <button id="logout">Выйти</button>
+  </div>
+</header>
+
+<section id="login" class="login-card">
+  <h1>Вход для диспетчера</h1>
+  <input id="lg-user" placeholder="Логин" value="admin" autocomplete="username">
+  <input id="lg-pass" type="password" placeholder="Пароль" autocomplete="current-password">
+  <button id="lg-go" class="primary">Войти</button>
+  <p class="hint">Логин диспетчера или администратора. Клиентам — кабинет <a href="/client">/client</a>.</p>
+</section>
+
+<main id="app" hidden>
+  <!-- ============================================== новая заявка -->
+  <section id="tab-new" class="tab active">
+    <h2>Новая заявка</h2>
+    <div class="form-stack">
+      <div class="toolbar">
+        <input id="r-contractor" list="dl-contractors" placeholder="Наименование контрагента *" style="max-width:340px" autocomplete="off">
+        <datalist id="dl-contractors"></datalist>
+        <input id="r-unp" placeholder="УНП (необязательно)" size="13">
+        <input id="r-account" placeholder="Р/С (необязательно)" size="30">
+        <input id="r-bank" placeholder="Банк (необязательно)" style="max-width:200px">
+      </div>
+      <div class="toolbar">
+        <input id="r-contact" placeholder="Контактное лицо *" style="max-width:260px">
+        <input id="r-phone" placeholder="Телефон * (напр. 8029 1234567)" size="24"><div id="r-phone-hint" class="muted" style="font-size:12px"></div>
+      </div>
+      <div class="toolbar">
+        <select id="r-work" style="max-width:360px"></select>
+        <select id="r-priority"></select>
+      </div>
+      <div class="toolbar">
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">Дата исполнения
+          <input type="date" id="r-date">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">Время с
+          <input type="time" id="r-time-from" style="max-width:110px">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:11px">по
+          <input type="time" id="r-time-to" style="max-width:110px">
+        </label>
+        <input id="r-settlement" list="dl-settlements" placeholder="Населённый пункт * (начните вводить)" style="max-width:230px" autocomplete="off">
+        <datalist id="dl-settlements"></datalist>
+        <input id="r-street" list="dl-streets" placeholder="Улица / проспект / пер. * (начните вводить)" style="max-width:290px" autocomplete="off">
+        <datalist id="dl-streets"></datalist>
+      </div>
+      <div class="toolbar">
+        <input id="r-house" placeholder="Дом" size="8">
+        <input id="r-office" placeholder="Кв./офис" size="10">
+        <button id="r-check">Проверить адрес</button>
+        <span class="muted" id="r-addr-preview" style="font-size:12px"></span>
+      </div>
+      <div class="hint" id="r-geo-result"></div>
+      <div class="toolbar">
+        <input id="r-equipment" placeholder="Оборудование (модель)" style="max-width:300px">
+        <input id="r-serial" placeholder="Серийный номер" size="18">
+      </div>
+      <label style="display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px">Пояснение
+        <textarea id="r-comment" rows="3" style="max-width:640px" placeholder="Что произошло, что требуется сделать"></textarea>
+      </label>
+      <div class="toolbar" style="margin-bottom:0">
+        <button id="r-submit" class="primary">Принять заявку</button>
+        <button id="r-clear">Очистить форму</button>
+      </div>
+    </div>
+    <p class="hint">Поля со * обязательны. Адрес переводится в координаты, по нему определяется район
+      и ответственный инженер; заявка сразу уходит в его маршрут.</p>
+  </section>
+
+  <!-- ============================================== журнал заявок -->
+  <section id="tab-list" class="tab">
+    <h2>Заявки</h2>
+    <div class="toolbar">
+      <input id="f-q" placeholder="Поиск: адрес, №, пояснение" style="max-width:240px">
+      <select id="f-status" style="max-width:200px"><option value="">Все статусы</option></select>
+      <input id="f-contractor" placeholder="Контрагент" style="max-width:180px">
+      <input id="f-unp" placeholder="УНП" size="12">
+      <input id="f-date-from" type="date"><input id="f-date-to" type="date">
+      <button id="f-go" class="primary">Найти</button>
+      <button id="f-reset">Сброс</button>
+      <label class="live"><input type="checkbox" id="live" checked> автообновление 30 с</label>
+    </div>
+    <div id="req-summary" class="summary"></div>
+    <table id="req-table">
+      <thead><tr>
+        <th>№</th><th>Создана</th><th>На дату</th><th>Контрагент</th><th>Работа</th><th>Срочность</th><th>Статус</th>
+        <th>Район</th><th>Инженер</th><th>Адрес</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="req-page" class="pager"></div>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden><div class="modal-box" id="modal-box"></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="/static/dispatcher/dispatcher.js"></script>
+</body>
+</html>

@@ -47,12 +47,37 @@ enum {
     IDC_EDIT_CONTACT, IDC_EDIT_PHONE, IDC_COMBO_WORK, IDC_COMBO_PRIORITY,
     IDC_EDIT_ADDRESS, IDC_BTN_GEOCODE, IDC_EDIT_EQUIPMENT, IDC_EDIT_SERIAL,
     IDC_EDIT_COMMENT, IDC_BTN_SUBMIT, IDC_BTN_CLEAR, IDC_BTN_SETTINGS,
-    IDC_BTN_CHECK, IDC_BTN_OPENMAP,
+    IDC_BTN_CHECK, IDC_BTN_OPENMAP, IDC_BTN_BROWSER,
     IDC_STATIC_GEO, IDC_STATIC_STATUS, IDC_STATIC_SERVER,
     IDC_SEARCH_EDIT, IDC_SEARCH_KIND, IDC_BTN_SEARCH, IDC_LIST_HISTORY, IDC_BTN_FILL,
     IDC_STATIC_FORM_ERR, IDC_BTN_UPDATE, IDC_STATIC_VERSION,
-    IDC_DLG_URL = 1500, IDC_DLG_URL_OK, IDC_DLG_URL_CANCEL, IDC_DLG_URL_TEST, IDC_DLG_URL_AUTO
+    IDC_DLG_URL = 1500, IDC_DLG_URL_OK, IDC_DLG_URL_CANCEL, IDC_DLG_URL_TEST, IDC_DLG_URL_AUTO,
+    IDC_DLG_URL_STARTUP = 1505
 };
+
+// Масштаб интерфейса под DPI монитора: все координаты в коде заданы для 96 DPI
+// (масштаб 100% в Windows). При 125–150% без масштабирования подписи наползают
+// на поля, а кнопки вылезают за край окна.
+static double g_dpiScale = 1.0;
+static int sx(int v) { return (int)(v * g_dpiScale + 0.5); }
+
+static void initDpiScale(HWND ref) {
+    typedef UINT (WINAPI *GetDpiFn)(HWND);
+    typedef UINT (WINAPI *GetDpiSysFn)(void);
+    HMODULE u32 = GetModuleHandleW(L"user32.dll");
+    if (ref) {
+        GetDpiFn byWindow = (GetDpiFn)(void*)GetProcAddress(u32, "GetDpiForWindow");
+        if (byWindow) {
+            UINT d = byWindow(ref);
+            if (d) { g_dpiScale = d / 96.0; return; }
+        }
+    }
+    GetDpiSysFn bySystem = (GetDpiSysFn)(void*)GetProcAddress(u32, "GetDpiForSystem");
+    if (bySystem) {
+        UINT d = bySystem();
+        if (d) g_dpiScale = d / 96.0;
+    }
+}
 
 #define WM_APP_STATUS (WM_APP + 1)
 #define WM_APP_INIT   (WM_APP + 2)
@@ -571,6 +596,14 @@ static void onCommand(int id, int code) {
     case IDC_BTN_CLEAR:
         if (askYes(L"Очистить поля формы?", L"Очистка")) clearForm(false);
         break;
+    case IDC_BTN_BROWSER: {
+        // новый интерфейс — браузерная консоль диспетчера на том же сервере
+        std::string url = app.serverUrl;
+        while (!url.empty() && url.back() == '/') url.pop_back();
+        url += "/dispatcher";
+        ShellExecuteW(app.hwnd, L"open", wide(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        break;
+    }
     case IDC_BTN_SETTINGS:
         showSettingsDialog();
         break;
@@ -637,7 +670,8 @@ static void onCommand(int id, int code) {
 static HWND mkControl(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h,
                       int id, DWORD exStyle = 0) {
     HWND hw = CreateWindowExW(exStyle, cls, text, WS_CHILD | WS_VISIBLE | style,
-                              x, y, w, h, app.hwnd, (HMENU)(INT_PTR)id, GetModuleHandleW(nullptr), nullptr);
+                              sx(x), sx(y), sx(w), sx(h),
+                              app.hwnd, (HMENU)(INT_PTR)id, GetModuleHandleW(nullptr), nullptr);
     if (hw && app.font) SendMessageW(hw, WM_SETFONT, (WPARAM)app.font, TRUE);
     return hw;
 }
@@ -704,10 +738,11 @@ static void createMainControls() {
               L, y, W + 160, 96, IDC_EDIT_COMMENT);
     y += 108;
 
-    mkControl(L"BUTTON", L"Отправить заявку на сервер", BS_DEFPUSHBUTTON, L, y, 210, 34, IDC_BTN_SUBMIT);
-    mkControl(L"BUTTON", L"Очистить форму", BS_PUSHBUTTON, L + 220, y, 140, 34, IDC_BTN_CLEAR);
-    mkControl(L"BUTTON", L"Проверить связь", BS_PUSHBUTTON, L + 370, y, 130, 34, IDC_BTN_CHECK);
-    mkControl(L"BUTTON", L"Настройки сервера", BS_PUSHBUTTON, L + 510, y, 150, 34, IDC_BTN_SETTINGS);
+    mkControl(L"BUTTON", L"Отправить заявку на сервер", BS_DEFPUSHBUTTON, L, y, 200, 34, IDC_BTN_SUBMIT);
+    mkControl(L"BUTTON", L"Очистить форму", BS_PUSHBUTTON, L + 210, y, 130, 34, IDC_BTN_CLEAR);
+    mkControl(L"BUTTON", L"Проверить связь", BS_PUSHBUTTON, L + 350, y, 120, 34, IDC_BTN_CHECK);
+    mkControl(L"BUTTON", L"Настройки сервера", BS_PUSHBUTTON, L + 480, y, 140, 34, IDC_BTN_SETTINGS);
+    mkControl(L"BUTTON", L"Открыть в браузере", BS_PUSHBUTTON, L + 630, y, 170, 34, IDC_BTN_BROWSER);
     y += 44;
 
     mkControl(L"BUTTON", L"Обновление клиента", BS_PUSHBUTTON, L, y, 180, 26, IDC_BTN_UPDATE);
@@ -718,6 +753,42 @@ static void createMainControls() {
     mkControl(L"STATIC", L"Сервер: —", SS_LEFT, 14, 640, 500, 18, IDC_STATIC_SERVER);
     HWND st = mkControl(L"STATIC", L"● Проверка связи с сервером…", SS_LEFT, 14, 660, 1180, 18, IDC_STATIC_STATUS);
     SendMessageW(st, WM_SETFONT, (WPARAM)app.font, TRUE);
+}
+
+// ------------------------------------------------- автозапуск с Windows
+static const wchar_t RUN_KEY[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static const wchar_t RUN_VAL_CLIENT[] = L"CartridgeEngineerClient";
+
+static bool autostartEnabled() {
+#ifdef _WIN32
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS) return false;
+    DWORD type = 0, size = 0;
+    LONG rc = RegQueryValueExW(k, RUN_VAL_CLIENT, nullptr, &type, nullptr, &size);
+    RegCloseKey(k);
+    return rc == ERROR_SUCCESS;
+#else
+    return false;
+#endif
+}
+
+static void autostartSet(bool on) {
+#ifdef _WIN32
+    HKEY k;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS)
+        return;
+    if (on) {
+        wchar_t path[MAX_PATH + 4] = L"";
+        GetModuleFileNameW(nullptr, path + 1, MAX_PATH);
+        path[0] = L'\"';
+        size_t len = wcslen(path);
+        path[len] = L'\"'; path[len + 1] = 0;
+        RegSetValueExW(k, RUN_VAL_CLIENT, 0, REG_SZ, (const BYTE*)path, (DWORD)((len + 2) * sizeof(wchar_t)));
+    } else {
+        RegDeleteValueW(k, RUN_VAL_CLIENT);
+    }
+    RegCloseKey(k);
+#endif
 }
 
 // ------------------------------------------------------------ окно настроек
@@ -731,20 +802,25 @@ static LRESULT CALLBACK SettingsProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                         WS_CHILD | WS_VISIBLE, 16, 14, 380, 18, h, nullptr, nullptr, nullptr);
         HWND e = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", dlgUrl.c_str(),
                                  WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP,
-                                 16, 36, 380, 24, h, (HMENU)(INT_PTR)IDC_DLG_URL, nullptr, nullptr);
+                                 sx(16), sx(36), sx(380), sx(24), h, (HMENU)(INT_PTR)IDC_DLG_URL, nullptr, nullptr);
         CreateWindowExW(0, L"STATIC", L"Пример: http://10.20.30.40:8000   (порт по умолчанию 8000)",
-                        WS_CHILD | WS_VISIBLE, 16, 64, 380, 18, h, nullptr, nullptr, nullptr);
+                        WS_CHILD | WS_VISIBLE, 16, 62, 380, 18, h, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Запускать вместе с Windows (автостарт, текущий пользователь)",
+                        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                        sx(16), sx(82), sx(380), sx(20), h, (HMENU)(INT_PTR)IDC_DLG_URL_STARTUP, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Проверять обновления при запуске (брать сборки с GitHub)",
                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
-                        16, 84, 380, 20, h, (HMENU)(INT_PTR)IDC_DLG_URL_AUTO, nullptr, nullptr);
+                        sx(16), sx(102), sx(380), sx(20), h, (HMENU)(INT_PTR)IDC_DLG_URL_AUTO, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Сохранить", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                        120, 116, 110, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_OK, nullptr, nullptr);
+                        sx(120), sx(134), sx(110), sx(28), h, (HMENU)(INT_PTR)IDC_DLG_URL_OK, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Проверить связь", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                        236, 116, 120, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_TEST, nullptr, nullptr);
+                        sx(236), sx(134), sx(120), sx(28), h, (HMENU)(INT_PTR)IDC_DLG_URL_TEST, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Отмена", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                        16, 116, 96, 28, h, (HMENU)(INT_PTR)IDC_DLG_URL_CANCEL, nullptr, nullptr);
+                        sx(16), sx(134), sx(96), sx(28), h, (HMENU)(INT_PTR)IDC_DLG_URL_CANCEL, nullptr, nullptr);
         SendMessageW(GetDlgItem(h, IDC_DLG_URL_AUTO), BM_SETCHECK,
                      app.updateOnStart ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(GetDlgItem(h, IDC_DLG_URL_STARTUP), BM_SETCHECK,
+                     autostartEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(e, WM_SETFONT, (WPARAM)app.font, TRUE);
         SetFocus(e);
         return 0;
@@ -756,6 +832,7 @@ static LRESULT CALLBACK SettingsProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             GetWindowTextW(GetDlgItem(h, IDC_DLG_URL), buf, 512);
             dlgUrl = buf;
             app.updateOnStart = SendMessageW(GetDlgItem(h, IDC_DLG_URL_AUTO), BM_GETCHECK, 0, 0) == BST_CHECKED;
+            autostartSet(SendMessageW(GetDlgItem(h, IDC_DLG_URL_STARTUP), BM_GETCHECK, 0, 0) == BST_CHECKED);
             dlgResult = true;
             DestroyWindow(h);
             return 0;
@@ -799,7 +876,7 @@ static void showSettingsDialog() {
 
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"CRMClientSettings", L"Настройки подключения к серверу",
                                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                               CW_USEDEFAULT, CW_USEDEFAULT, 430, 210, app.hwnd, nullptr,
+                               CW_USEDEFAULT, CW_USEDEFAULT, sx(430), sx(240), app.hwnd, nullptr,
                                GetModuleHandleW(nullptr), nullptr);
     if (!dlg) return;
     EnableWindow(app.hwnd, FALSE);
@@ -827,7 +904,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CREATE:
         app.hwnd = h;
-        app.font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        app.font = CreateFontW(-(int)(15 * g_dpiScale + 0.5), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         createMainControls();
@@ -878,18 +955,18 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE: {
         int w = LOWORD(lp), hgt = HIWORD(lp);
         HWND st = GetDlgItem(h, IDC_STATIC_STATUS);
-        if (st) SetWindowPos(st, nullptr, 0, 0, w - 30, 18, SWP_NOMOVE | SWP_NOZORDER);
+        if (st) SetWindowPos(st, nullptr, 0, 0, w - sx(30), sx(18), SWP_NOMOVE | SWP_NOZORDER);
         HWND lb = GetDlgItem(h, IDC_LIST_HISTORY);
-        if (lb) SetWindowPos(lb, nullptr, 0, 0, 340, hgt - 220, SWP_NOMOVE | SWP_NOZORDER);
+        if (lb) SetWindowPos(lb, nullptr, 0, 0, sx(340), hgt - sx(220), SWP_NOMOVE | SWP_NOZORDER);
         HWND fill = GetDlgItem(h, IDC_BTN_FILL);
-        if (fill) SetWindowPos(fill, nullptr, 0, hgt - 120, 340, 30, SWP_NOMOVE | SWP_NOZORDER);
+        if (fill) SetWindowPos(fill, nullptr, 0, hgt - sx(120), sx(340), sx(30), SWP_NOMOVE | SWP_NOZORDER);
         return 0;
     }
 
     case WM_GETMINMAXINFO: {
         MINMAXINFO* m = (MINMAXINFO*)lp;
-        m->ptMinTrackSize.x = 1200;
-        m->ptMinTrackSize.y = 720;
+        m->ptMinTrackSize.x = sx(1200);
+        m->ptMinTrackSize.y = sx(720);
         return 0;
     }
 
@@ -914,6 +991,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
 
     settingsLoad();
     app.api.base = app.serverUrl;
+    const bool openSettingsNow = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;   // Shift при запуске — настройки
 
     WNDCLASSW wc;
     ZeroMemory(&wc, sizeof(wc));
@@ -925,16 +1003,25 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     wc.lpszMenuName = nullptr;
     RegisterClassW(&wc);
 
-    std::wstring title = L"CRM — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
+    initDpiScale(nullptr);
+    std::wstring title = L"Cartridge Engineer — приём заявок на заправку картриджей и ремонт оргтехники — версия " +
                          wide(CRM_CLIENT_VERSION);
+    int winW = sx(1210), winH = sx(760);
+    RECT wa{};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
+        int maxW = wa.right - wa.left - 16, maxH = wa.bottom - wa.top - 16;
+        if (winW > maxW) winW = maxW;   // узкий экран: список тянется в WM_SIZE, контент слева
+        if (winH > maxH) winH = maxH;
+    }
     HWND h = CreateWindowExW(0, L"CRMClientMain", title.c_str(),
                              WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 1210, 740,
+                             CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
                              nullptr, nullptr, inst, nullptr);
     if (!h) return 1;
 
     SetTimer(h, TIMER_CONNECT, 60000, nullptr);
     SetFocus(GetDlgItem(h, IDC_EDIT_CONTRACTOR));
+    if (openSettingsNow) showSettingsDialog();   // запущен с нажатым Shift
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

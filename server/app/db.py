@@ -11,7 +11,43 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-DB_PATH = os.environ.get("CRM_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "crm.sqlite3"))
+from . import _runtime
+
+if os.environ.get("CRM_DB"):
+    DB_PATH = os.environ["CRM_DB"]
+elif os.environ.get("CRM_DATA_DIR"):
+    # вся база в указанной папке (переносимой): CRM_DATA_DIR=/D/crm-data
+    DB_PATH = os.path.join(os.environ["CRM_DATA_DIR"], "crm.sqlite3")
+elif _runtime.is_frozen():
+    # exe: база живёт в папке data рядом с CRM-Server.exe, чтобы переживать
+    # перезапуски и обновления: новый exe подхватывает ту же папку data
+    DB_PATH = os.path.join(_runtime.writable_dir("data"), "crm.sqlite3")
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "crm.sqlite3")
+
+DATA_DIR = os.path.dirname(DB_PATH)
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+
+_README = """Эта папка — ВСЯ база данных Cartridge Engineer.
+crm.sqlite3          — база (заявки, пользователи, контрагенты, зоны, настройки)
+backups/             — резервные копии (кнопки «Выгрузить/Загрузить базу» в админке)
+
+Как перенести базу на новый/обновлённый сервер:
+  1. Остановите сервер (закройте окно CRM-Server.exe).
+  2. Скопируйте эту папку data в папку с новым CRM-Server.exe (или укажите
+     путь к ней переменной окружения CRM_DATA_DIR).
+  3. Запустите сервер — он подхватит базу со всеми данными.
+Резервную копию можно также скачать кнопкой «Выгрузить базу в бэкап»
+(Админка → Настройки → Обслуживание базы) и восстановить ею же.
+"""
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    _rm = os.path.join(DATA_DIR, "README.txt")
+    if not os.path.exists(_rm):
+        with open(_rm, "w", encoding="utf-8") as _f:
+            _f.write(_README)
+except OSError:
+    pass
 
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
@@ -41,9 +77,11 @@ CREATE TABLE IF NOT EXISTS users (
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     salt          TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer')),
+    role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer','client')),
     full_name     TEXT,
     engineer_id   INTEGER REFERENCES engineers(id),
+    company       TEXT,
+    unp           TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL
 );
@@ -144,6 +182,8 @@ CREATE TABLE IF NOT EXISTS requests (
     assigned_by    TEXT,
     assigned_at    TEXT,
     planned_date   TEXT,
+    time_from      TEXT,
+    time_to        TEXT,
     done_at        TEXT,
     visit_result   TEXT,
     minutes_planned INTEGER,
@@ -258,8 +298,66 @@ def get_conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            _migrate_requests(_conn)
+            _migrate(_conn)
             _conn.commit()
         return _conn
+
+
+def _migrate_requests(conn: sqlite3.Connection) -> None:
+    """Окно визита «с … по …» — колонки для баз, созданных раньше этой фичи."""
+    info = conn.execute("PRAGMA table_info(requests)").fetchall()
+    if not info:
+        return
+    cols = {r[1] for r in info}
+    for col in ("time_from", "time_to"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Обновление структуры старых баз (созданных до добавления роли client).
+
+    SQLite не умеет менять CHECK у существующей таблицы — пересоздаём users:
+    + роль 'client' (кабинет заказчика), + колонки company/unp для привязки
+    клиента к организации. Данные пользователей сохраняются.
+    """
+    info = conn.execute("PRAGMA table_info(users)").fetchall()
+    if not info:
+        return
+    cols = {r[1] for r in info}
+    ddl = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").fetchone()[0]
+    need_rebuild = "'client'" not in ddl
+    need_company = "company" not in cols
+    need_unp = "unp" not in cols
+    if not (need_rebuild or need_company or need_unp):
+        return
+    conn.execute("PRAGMA foreign_keys=OFF")
+    if need_rebuild:
+        conn.execute("""CREATE TABLE users_migrated (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt          TEXT NOT NULL,
+            role          TEXT NOT NULL CHECK (role IN ('admin','operator','engineer','client')),
+            full_name     TEXT,
+            engineer_id   INTEGER REFERENCES engineers(id),
+            company       TEXT,
+            unp           TEXT,
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL)""")
+        conn.execute("""INSERT INTO users_migrated
+            (id,username,password_hash,salt,role,full_name,engineer_id,company,unp,active,created_at)
+            SELECT id,username,password_hash,salt,role,full_name,engineer_id,NULL,NULL,active,created_at
+            FROM users""")
+        conn.execute("DROP TABLE users")
+        conn.execute("ALTER TABLE users_migrated RENAME TO users")
+    else:
+        if need_company:
+            conn.execute("ALTER TABLE users ADD COLUMN company TEXT")
+        if need_unp:
+            conn.execute("ALTER TABLE users ADD COLUMN unp TEXT")
+    conn.execute("PRAGMA foreign_keys=ON")
+    print("CRM: база обновлена — добавлена роль «клиент» и привязка пользователя к организации")
 
 
 @contextmanager
@@ -273,6 +371,45 @@ def tx():
         except Exception:
             conn.rollback()
             raise
+
+
+def reopen() -> None:
+    """Закрыть соединение (после подмены файла базы откроется заново)."""
+    global _conn
+    with _lock:
+        if _conn is not None:
+            try:
+                _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
+            _conn.close()
+            _conn = None
+
+
+def backup_to(path: str) -> None:
+    """Консистентная копия базы через sqlite backup API (можно при живом сервере)."""
+    with _lock:
+        dst = sqlite3.connect(path)
+        try:
+            get_conn().backup(dst)
+            dst.commit()
+        finally:
+            dst.close()
+
+
+def restore_from(path: str) -> None:
+    """Подменить файл базы проверенной копией и переоткрыть соединение."""
+    global _conn
+    with _lock:
+        reopen()
+        for suffix in ("-wal", "-shm"):
+            try:
+                os.remove(DB_PATH + suffix)
+            except OSError:
+                pass
+        os.replace(path, DB_PATH)
+        _conn = None
+        get_conn()          # схема + миграции применятся к восстановленной базе
 
 
 def q(sql: str, args: tuple | list = ()) -> list[sqlite3.Row]:
