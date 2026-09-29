@@ -34,7 +34,7 @@ ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 ]
-UA = "CRM-street-index/2.2 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.3 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -67,11 +67,15 @@ def overpass(query: str) -> dict:
                 with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=900) as r:
                     body = r.read().decode("utf-8", "replace")
                     print(f"  overpass: {ep} ok ({len(body)} байт)", flush=True)
-                    try:
-                        return json.loads(body)
-                    except json.JSONDecodeError:
-                        print(f"  overpass: ответ не JSON: {body[:200]!r}", flush=True)
-                        raise
+                    data = json.loads(body)
+                    # Overpass при перегрузке отвечает 200 с ПУСТЫМ elements и
+                    # remark "runtime error ..." — такой ответ считаем ошибкой
+                    remark = data.get("remark", "")
+                    if remark:
+                        print(f"  overpass: remark: {remark}", flush=True)
+                    if not data.get("elements") and remark:
+                        raise RuntimeError(f"пустой ответ: {remark}")
+                    return data
             except SystemExit:
                 raise
             except Exception as e:  # noqa: BLE001
@@ -104,10 +108,20 @@ def rel_area_id(name_ru: str, names_be: tuple = ()) -> int:
     raise SystemExit(f"Не найдена граница: {name_ru} (кандидаты выше)")
 
 
-def q_center(area: int, selector: str, timeout: int = 900) -> list:
-    q = (f'[out:json][timeout:{timeout}];area({area})->.a;'
-         f'way(area.a)["highway"]["name"]{selector};out center;')
-    return overpass(q).get("elements", [])
+# большие области Overpass не успевает посчитать одним запросом — режем
+# по первой букве названия; «прочее» — латиница/цифры
+_NAME_GROUPS = ["^[А-Д]", "^[Е-К]", "^[Л-Р]", "^[С-Ц]", "^[Ч-ЯЁ]", "!~'^[А-ЯЁ]']"]
+
+
+def q_streets(area: int) -> list:
+    """Именованные улицы области, порциями по первой букве."""
+    out = []
+    for sel in _NAME_GROUPS:
+        q = (f'[out:json][timeout:600];area({area})->.a;'
+             f'way(area.a)["highway"]["name"]["name"~"{sel}"];out center;')
+        out.extend(overpass(q).get("elements", []))
+        time.sleep(2)
+    return out
 
 
 def q_houses(area: int) -> list:
@@ -134,35 +148,48 @@ def q_geom(rel_id: int) -> dict | None:
 
 
 def rings_from_geom(rel: dict) -> list:
-    """Кольца из инлайн-геометрии членов отношения (out geom)."""
+    """Кольца из инлайн-геометрии членов отношения (out geom).
+
+    Узлы смежных участков границ в OSM не всегда совпадают точь-в-точь,
+    поэтому концы склеиваем по округлению до 5 знаков (~0.5 м)."""
     lines = []
     for m in rel.get("members", []):
         if m.get("type") == "way" and m.get("role") in ("outer", ""):
             g = m.get("geometry") or []
-            pts = [(pt["lon"], pt["lat"]) for pt in g if pt.get("lon") is not None]
+            pts = [(round(pt["lon"], 5), round(pt["lat"], 5))
+                   for pt in g if pt.get("lon") is not None]
             if len(pts) >= 3:
                 lines.append(pts)
+    ends = {}
+    for idx, pts in enumerate(lines):
+        ends.setdefault(pts[0], []).append((idx, "start"))
+        ends.setdefault(pts[-1], []).append((idx, "end"))
     rings, used = [], [False] * len(lines)
     for i in range(len(lines)):
         if used[i]:
             continue
         ring = list(lines[i])
         used[i] = True
-        changed = True
-        while changed and ring[0] != ring[-1]:
-            changed = False
-            for j in range(len(lines)):
-                if used[j]:
-                    continue
+        for _side in ("tail", "head"):
+            while ring[0] != ring[-1]:
+                end = ring[-1]
+                nxt = next(((j, sd) for j, sd in ends.get(end, []) if not used[j]), None)
+                if not nxt:
+                    break
+                j, sd = nxt
+                used[j] = True
                 w = lines[j]
-                if w[0] == ring[-1]:
-                    ring.extend(w[1:]); used[j] = True; changed = True
-                elif w[-1] == ring[-1]:
-                    ring.extend(list(reversed(w))[1:]); used[j] = True; changed = True
-                elif w[-1] == ring[0]:
-                    ring = w[:-1] + ring; used[j] = True; changed = True
-                elif w[0] == ring[0]:
-                    ring = list(reversed(w))[1:] + ring; used[j] = True; changed = True
+                ring.extend(w[1:] if sd == "start" else list(reversed(w))[1:])
+            if ring[0] == ring[-1]:
+                break
+            # попытка дорастить в начало
+            head = next(((j, sd) for j, sd in ends.get(ring[0], []) if not used[j]), None)
+            if not head:
+                break
+            j, sd = head
+            used[j] = True
+            w = lines[j]
+            ring = (w[:-1] if sd == "end" else list(reversed(w))[1:]) + ring
         if len(ring) >= 4 and ring[0] == ring[-1]:
             rings.append(ring)
     return rings
@@ -323,8 +350,9 @@ def main() -> None:
     print(f"  населённых пунктов/микрорайонов: {len(streets)}", flush=True)
 
     print("4/6 Улицы города и района...", flush=True)
+    n_city = n_reg = 0
     for area, is_city in ((city, True), (region, False)):
-        for e in q_center(area, ""):
+        for e in q_streets(area):
             tags = e.get("tags", {})
             name = tags.get("name:ru") or tags.get("name")
             c = e.get("center") or {}
@@ -335,7 +363,13 @@ def main() -> None:
                 dist = district_of(c["lat"], c["lon"]) if is_city else "Минский район"
                 streets[k] = {"name": name, "lat": c["lat"], "lon": c["lon"],
                               "district": dist, "kind": "street"}
-    print(f"  всего улиц/НП: {len(streets)}", flush=True)
+                if is_city:
+                    n_city += 1
+                else:
+                    n_reg += 1
+    print(f"  улиц города: {n_city}, улиц района: {n_reg}, всего улиц/НП: {len(streets)}",
+          flush=True)
+    report.append(f"== Улицы: города {n_city}, района {n_reg}, НП {len(streets) - n_city - n_reg} ==")
     no_d = [v["name"] for v in streets.values() if not v["district"]]
     report.append(f"== Улиц без района: {len(no_d)} ==")
     report.extend(no_d[:40])
