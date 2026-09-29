@@ -1,0 +1,35 @@
+1/6 Области OSM...
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
+  overpass: https://overpass-api.de/api/interpreter ok (3015 байт)
+  кандидат: rel 59195 | name:ru='Минск' | name='Мінск' | admin_level=4
+  область «Минск»: relation 59195
+  overpass: https://overpass-api.de/api/interpreter ok (1047 байт)
+  кандидат: rel 59190 | name:ru='Минский район' | name='Мінскі раён' | admin_level=6
+  область «Минский район»: relation 59190
+2/6 Районы города (границы)...
+  overpass: https://overpass-api.de/api/interpreter ok (19433 байт)
+  граница в городе: rel 59065 L2 'Беларусь'
+  граница в городе: rel 59190 L6 'Минский район'
+  граница в городе: rel 59195 L4 'Минск'
+  граница в городе: rel 59199 L9 'Октябрьский район'
+  граница в городе: rel 59202 L9 'Ленинский район'
+  граница в городе: rel 59208 L9 'Московский район'
+  граница в городе: rel 59209 L9 'Заводской район'
+  граница в городе: rel 59246 L9 'Фрунзенский район'
+  граница в городе: rel 59249 L9 'Центральный район'
+  граница в городе: rel 59250 L9 'Советский район'
+  граница в городе: rel 59252 L9 'Первомайский район'
+  граница в городе: rel 59752 L4 'Минская область'
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
+Overpass недоступен: <urlopen error [Errno 110] Connection timed out>
+exit=1
