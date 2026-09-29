@@ -34,7 +34,7 @@ ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 ]
-UA = "CRM-street-index/1.4 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.0 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -119,11 +119,50 @@ def q_houses(area: int) -> list:
     return overpass(q).get("elements", [])
 
 
-def q_raions(area: int) -> list:
-    q = (f'[out:json][timeout:600];area({area})->.a;'
-         'rel(area.a)["boundary"="administrative"]["admin_level"="7"];'
-         '(._;>;);out body;')
+def q_admin_list(area: int) -> list:
+    """Все административные границы внутри области: id, уровень, имя, центр."""
+    q = (f'[out:json][timeout:300];area({area})->.a;'
+         'rel(area.a)["boundary"="administrative"]["admin_level"];out ids tags center;')
     return overpass(q).get("elements", [])
+
+
+def q_geom(rel_ids: list) -> list:
+    """Полная геометрия перечисленных отношений."""
+    body = ";".join(f"rel({i})" for i in rel_ids)
+    q = f'[out:json][timeout:1200];({body});(._;>;);out body;'
+    return overpass(q).get("elements", [])
+
+
+_BE_WORDS = {
+    "Першамайскі": "Первомайский", "Савецкі": "Советский", "Цэнтральны": "Центральный",
+    "Кастрычніцкі": "Октябрьский", "Ленінскі": "Ленинский", "Калінінскі": "Калининский",
+    "Заводскі": "Заводской", "Партызанскі": "Партизанский", "Маскоўскі": "Московский",
+    "Фрунзенскі": "Фрунзенский", "раён": "район", "гарадскі": "городской",
+}
+
+
+def ru_name(name: str) -> str:
+    """Белорусское написание -> русское (для названий районов в справочнике)."""
+    if not name:
+        return name
+    words = [_BE_WORDS.get(w, w) for w in name.split()]
+    t = " ".join(words)
+    return (t.replace("і", "и").replace("ў", "у")
+             .replace("ы", "и").replace("ґ", "г"))
+
+
+def ring_area(rings: list) -> float:
+    """Грубая площадь мультиполигона (для сортировки от мелких к крупным)."""
+    a = 0.0
+    for ring in rings:
+        ssum = 0.0
+        n = len(ring)
+        for i in range(n - 1):
+            x1, y1 = ring[i]
+            x2, y2 = ring[i + 1]
+            ssum += x1 * y2 - x2 * y1
+        a += abs(ssum) / 2
+    return a
 
 
 def build_rings(rel: dict, ways: dict) -> list:
@@ -182,17 +221,31 @@ def main() -> None:
     region = rel_area_id("Минский район", ("Мінскі раён",))
 
     print("2/6 Районы города (границы)...", flush=True)
-    els = q_raions(city)
+    city_rel_id = city - 3600000000
+    region_rel_id = region - 3600000000
+    rels = q_admin_list(city)
+    for r in rels:
+        t = r.get("tags", {})
+        print(f"  граница в городе: rel {r['id']} L{t.get('admin_level')} "
+              f"{t.get('name:ru') or t.get('name')!r}", flush=True)
+    ids = [r["id"] for r in rels if r["id"] not in (city_rel_id, region_rel_id)]
+    els = q_geom(ids) if ids else []
     nodes = {e["id"]: (e["lon"], e["lat"]) for e in els if e["type"] == "node"}
     ways = {e["id"]: [nodes[n] for n in e.get("nodes", []) if n in nodes]
             for e in els if e["type"] == "way"}
-    polygons = []   # (name, [rings])
+    polygons = []   # (name, [rings]) — сортировка: от мелких к крупным
     for e in els:
-        if e["type"] == "relation" and e.get("tags", {}).get("name:ru"):
-            rings = build_rings(e, ways)
-            if rings:
-                polygons.append((e["tags"].get("name:ru", ""), rings))
-    print(f"  районов с полигонами: {len(polygons)}", flush=True)
+        if e["type"] != "relation":
+            continue
+        t = e.get("tags", {})
+        nm = t.get("name:ru") or ru_name(t.get("name", ""))
+        rings = build_rings(e, ways)
+        if nm and rings:
+            polygons.append((nm, rings, ring_area(rings)))
+    polygons.sort(key=lambda x: x[2])
+    print(f"  районов с полигонами: {len(polygons)}: "
+          + ", ".join(p[0] for p in polygons), flush=True)
+    report = ["== Полигоны районов города =="] + [f"{p[0]} (площадь ~{p[2]:.4f})" for p in polygons]
 
     def district_of(lat: float, lon: float) -> str:
         pt = (lon, lat)
@@ -221,11 +274,11 @@ def main() -> None:
         k = street_key(name)
         if k and k not in streets:
             streets[k] = {"name": name, "lat": c["lat"], "lon": c["lon"],
-                          "district": tags.get("addr:district", ""), "kind": kind}
+                          "district": "Минский район", "kind": kind}
     print(f"  населённых пунктов/микрорайонов: {len(streets)}", flush=True)
 
     print("4/6 Улицы города и района...", flush=True)
-    for area in (city, region):
+    for area, is_city in ((city, True), (region, False)):
         for e in q_center(area, ""):
             tags = e.get("tags", {})
             name = tags.get("name:ru") or tags.get("name")
@@ -234,9 +287,13 @@ def main() -> None:
                 continue
             k = street_key(name)
             if k and k not in streets:
+                dist = district_of(c["lat"], c["lon"]) if is_city else "Минский район"
                 streets[k] = {"name": name, "lat": c["lat"], "lon": c["lon"],
-                              "district": district_of(c["lat"], c["lon"]), "kind": "street"}
+                              "district": dist, "kind": "street"}
     print(f"  всего улиц/НП: {len(streets)}", flush=True)
+    no_d = [v["name"] for v in streets.values() if not v["district"]]
+    report.append(f"== Улиц без района: {len(no_d)} ==")
+    report.extend(no_d[:40])
 
     print("5/6 Дома...", flush=True)
     houses = {}
@@ -263,6 +320,10 @@ def main() -> None:
                 % time.strftime("%Y-%m-%d"))
         for k, v in sorted(streets.items()):
             f.write(f"{v['name']};{v['lat']:.6f};{v['lon']:.6f};{v['district']};{v['kind']}\n")
+    rep_dir = os.path.normpath(os.path.join(DATA_DIR, "..", "..", "..", ".ci"))
+    os.makedirs(rep_dir, exist_ok=True)
+    with open(os.path.join(rep_dir, "harvest-report.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(report) + "\n")
     hp = os.path.join(DATA_DIR, "minsk_houses.csv.gz")
     with gzip.open(hp, "wt", encoding="utf-8", compresslevel=9) as f:
         f.write("# street;house;lat;lon — OpenStreetMap contributors, ODbL; сборка %s\n"
