@@ -34,7 +34,7 @@ ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 ]
-UA = "CRM-street-index/2.3 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.4 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -108,18 +108,30 @@ def rel_area_id(name_ru: str, names_be: tuple = ()) -> int:
     raise SystemExit(f"Не найдена граница: {name_ru} (кандидаты выше)")
 
 
-# большие области Overpass не успевает посчитать одним запросом — режем
-# по первой букве названия; «прочее» — латиница/цифры
-_NAME_GROUPS = ["^[А-Д]", "^[Е-К]", "^[Л-Р]", "^[С-Ц]", "^[Ч-ЯЁ]", "!~'^[А-ЯЁ]']"]
+# большие области Overpass не успевает посчитать одним запросом, а кириллические
+# диапазоны в regex движок отвергает (400) — режем по типам дорог (латиница)
+_KIND_GROUPS = [
+    "motorway|trunk|primary|secondary|tertiary",
+    "residential",
+    "living_street|unclassified",
+    "service",
+    "pedestrian|footway|cycleway|path|track",
+    "road|busway|construction",
+]
 
 
 def q_streets(area: int) -> list:
-    """Именованные улицы области, порциями по первой букве."""
+    """Именованные улицы области, порциями по типам дорог.
+
+    Провал одной группы не валит сбор: недостающие улицы лучше пустоты."""
     out = []
-    for sel in _NAME_GROUPS:
-        q = (f'[out:json][timeout:600];area({area})->.a;'
-             f'way(area.a)["highway"]["name"]["name"~"{sel}"];out center;')
-        out.extend(overpass(q).get("elements", []))
+    for kinds in _KIND_GROUPS:
+        q = (f'[out:json][timeout:900];area({area})->.a;'
+             f'way(area.a)["highway"]["name"]["highway"~"^({kinds})$"];out center;')
+        try:
+            out.extend(overpass(q).get("elements", []))
+        except SystemExit as exc:  # noqa: BLE001
+            print(f"  ! группа {kinds} не собралась: {exc}", flush=True)
         time.sleep(2)
     return out
 
