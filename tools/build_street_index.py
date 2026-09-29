@@ -34,7 +34,7 @@ ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 ]
-UA = "CRM-street-index/2.1 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.2 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -75,7 +75,7 @@ def overpass(query: str) -> dict:
             except SystemExit:
                 raise
             except Exception as e:  # noqa: BLE001
-                print(f"  overpass: {ep} ошибка: {e}", flush=True)
+                print(f"  overpass: {ep} ошибка: {e} | q: {query[:140]!r}", flush=True)
                 last = e
         time.sleep(20 * (attempt + 1))
     raise SystemExit(f"Overpass недоступен: {last}")
@@ -126,11 +126,46 @@ def q_admin_list(area: int) -> list:
     return overpass(q).get("elements", [])
 
 
-def q_geom(rel_ids: list) -> list:
-    """Полная геометрия перечисленных отношений."""
-    body = ";".join(f"rel({i})" for i in rel_ids)
-    q = f'[out:json][timeout:1200];({body});(._;>;);out body;'
-    return overpass(q).get("elements", [])
+def q_geom(rel_id: int) -> dict | None:
+    """Геометрия одного отношения (инлайн, без рекурсии путей)."""
+    q = f'[out:json][timeout:300];rel({rel_id});out geom;'
+    els = overpass(q).get("elements", [])
+    return els[0] if els else None
+
+
+def rings_from_geom(rel: dict) -> list:
+    """Кольца из инлайн-геометрии членов отношения (out geom)."""
+    lines = []
+    for m in rel.get("members", []):
+        if m.get("type") == "way" and m.get("role") in ("outer", ""):
+            g = m.get("geometry") or []
+            pts = [(pt["lon"], pt["lat"]) for pt in g if pt.get("lon") is not None]
+            if len(pts) >= 3:
+                lines.append(pts)
+    rings, used = [], [False] * len(lines)
+    for i in range(len(lines)):
+        if used[i]:
+            continue
+        ring = list(lines[i])
+        used[i] = True
+        changed = True
+        while changed and ring[0] != ring[-1]:
+            changed = False
+            for j in range(len(lines)):
+                if used[j]:
+                    continue
+                w = lines[j]
+                if w[0] == ring[-1]:
+                    ring.extend(w[1:]); used[j] = True; changed = True
+                elif w[-1] == ring[-1]:
+                    ring.extend(list(reversed(w))[1:]); used[j] = True; changed = True
+                elif w[-1] == ring[0]:
+                    ring = w[:-1] + ring; used[j] = True; changed = True
+                elif w[0] == ring[0]:
+                    ring = list(reversed(w))[1:] + ring; used[j] = True; changed = True
+        if len(ring) >= 4 and ring[0] == ring[-1]:
+            rings.append(ring)
+    return rings
 
 
 _BE_WORDS = {
@@ -240,19 +275,18 @@ def main() -> None:
         if r["id"] in (city_rel_id, region_rel_id) or lvl < 8:
             continue
         ids.append(r["id"])
-    els = q_geom(ids) if ids else []
-    nodes = {e["id"]: (e["lon"], e["lat"]) for e in els if e["type"] == "node"}
-    ways = {e["id"]: [nodes[n] for n in e.get("nodes", []) if n in nodes]
-            for e in els if e["type"] == "way"}
     polygons = []   # (name, [rings]) — сортировка: от мелких к крупным
-    for e in els:
-        if e["type"] != "relation":
+    for rid in ids:
+        rel = q_geom(rid)
+        if not rel:
             continue
-        t = e.get("tags", {})
+        t = rel.get("tags", {})
         nm = t.get("name:ru") or ru_name(t.get("name", ""))
-        rings = build_rings(e, ways)
+        rings = rings_from_geom(rel)
         if nm and rings:
             polygons.append((nm, rings, ring_area(rings)))
+        else:
+            print(f"  ! нет полигона: rel {rid} {nm!r} (колец: {len(rings)})", flush=True)
     polygons.sort(key=lambda x: x[2])
     print(f"  районов с полигонами: {len(polygons)}: "
           + ", ".join(p[0] for p in polygons), flush=True)
