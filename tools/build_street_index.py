@@ -32,9 +32,9 @@ DATA_DIR = os.path.join(HERE, "..", "server", "app", "data")
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.osm.jp/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
 ]
-UA = "CRM-street-index/2.5 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.6 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -157,6 +157,27 @@ def q_geom(rel_id: int) -> dict | None:
     q = f'[out:json][timeout:300];rel({rel_id});out geom;'
     els = overpass(q).get("elements", [])
     return els[0] if els else None
+
+
+def q_geom_ways(rel_id: int) -> list:
+    """Запасной путь: геометрия путей-членов отношения (лёгкая, без рекурсии)."""
+    q = f'[out:json][timeout:300];rel({rel_id});way(r);out geom;'
+    return overpass(q).get("elements", [])
+
+
+def rings_from_way_geoms(els: list) -> list:
+    """Кольца из геометрий путей (ответ way(r); out geom)."""
+    lines = []
+    for e in els:
+        if e.get("type") != "way":
+            continue
+        pts = [(round(pt["lon"], 5), round(pt["lat"], 5))
+               for pt in (e.get("geometry") or []) if pt.get("lon") is not None]
+        if len(pts) >= 3:
+            lines.append(pts)
+    fake = {"members": [{"type": "way", "role": "outer", "geometry":
+                         [{"lon": a, "lat": b} for a, b in pts]} for pts in lines]}
+    return rings_from_geom(fake)
 
 
 def rings_from_geom(rel: dict) -> list:
@@ -314,18 +335,34 @@ def main() -> None:
         if r["id"] in (city_rel_id, region_rel_id) or lvl < 8:
             continue
         ids.append(r["id"])
-    polygons = []   # (name, [rings]) — сортировка: от мелких к крупным
-    for rid in ids:
-        rel = q_geom(rid)
-        if not rel:
-            continue
-        t = rel.get("tags", {})
-        nm = t.get("name:ru") or ru_name(t.get("name", ""))
-        rings = rings_from_geom(rel)
-        if nm and rings:
-            polygons.append((nm, rings, ring_area(rings)))
-        else:
-            print(f"  ! нет полигона: rel {rid} {nm!r} (колец: {len(rings)})", flush=True)
+    def collect_polygons(rel_ids):
+        out = []
+        for rid in rel_ids:
+            rel = q_geom(rid)
+            if not rel:
+                continue
+            t = rel.get("tags", {})
+            nm = t.get("name:ru") or ru_name(t.get("name", ""))
+            rings = rings_from_geom(rel)
+            if not rings:
+                # запасной путь: геометрия путей-членов
+                try:
+                    rings = rings_from_way_geoms(q_geom_ways(rid))
+                except SystemExit:
+                    rings = []
+            if nm and rings:
+                out.append((nm, rings, ring_area(rings)))
+            else:
+                kinds = {}
+                for m in (rel or {}).get("members", []):
+                    key = m.get("type") + "/" + (m.get("role") or "-")
+                    kinds[key] = kinds.get(key, 0) + 1
+                print(f"  ! нет полигона: rel {rid} {nm!r} (колец: {len(rings)}; "
+                      f"члены: {kinds or 'неизвестно'})", flush=True)
+            time.sleep(3)
+        return out
+
+    polygons = collect_polygons(ids)   # (name, [rings]) — от мелких к крупным
     polygons.sort(key=lambda x: x[2])
 
     def polygons_report(pl):
@@ -340,17 +377,7 @@ def main() -> None:
         # вторая попытка, иначе сбор проваливаем (мусор не коммитим)
         print("  полигоны пусты — повторная попытка через 60 с", flush=True)
         time.sleep(60)
-        polygons = []
-        for rid in ids:
-            rel = q_geom(rid)
-            if not rel:
-                continue
-            t = rel.get("tags", {})
-            nm = t.get("name:ru") or ru_name(t.get("name", ""))
-            rings = rings_from_geom(rel)
-            if nm and rings:
-                polygons.append((nm, rings, ring_area(rings)))
-        polygons.sort(key=lambda x: x[2])
+        polygons = collect_polygons(ids)
         report = polygons_report(polygons)
     if len(polygons) < 5:
         raise SystemExit(f"Собрано полигонов районов: {len(polygons)} (<5) — "
