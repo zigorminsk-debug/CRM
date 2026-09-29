@@ -1,5 +1,6 @@
 1/6 Области OSM...
-  overpass: https://overpass-api.de/api/interpreter ok (3015 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:120];(rel["boundary"="administrative"]["admin_level"="4"]["name:ru"~"^Мінск$"];rel["boundary"="administrative"]["admin_le'
+  overpass: https://overpass.kumi.systems/api/interpreter ok (3015 байт)
   кандидат: rel 59195 | name:ru='Минск' | name='Мінск' | admin_level=4
   область «Минск»: relation 59195
   overpass: https://overpass-api.de/api/interpreter ok (1047 байт)
@@ -19,17 +20,58 @@
   граница в городе: rel 59250 L9 'Советский район'
   граница в городе: rel 59252 L9 'Первомайский район'
   граница в городе: rel 59752 L4 'Минская область'
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59199);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59199);out geom;'
+  overpass: https://overpass.private.coffee/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59199);out geom;'
   overpass: https://overpass-api.de/api/interpreter ok (23604 байт)
-  overpass: https://overpass-api.de/api/interpreter ok (17854 байт)
-  ! нет полигона: rel 59202 'Ленинский район' (колец: 0)
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 429: Too Many Requests | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.osm.jp/api/interpreter ошибка: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate is not valid for 'overpass.osm.jp'. (_ssl.c:1016)> | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.osm.jp/api/interpreter ошибка: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate is not valid for 'overpass.osm.jp'. (_ssl.c:1016)> | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59208);out geom;'
-  overpass: https://overpass.osm.jp/api/interpreter ошибка: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate is not valid for 'overpass.osm.jp'. (_ssl.c:1016)> | q: '[out:json][timeout:300];rel(59208);out geom;'
-Overpass недоступен: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate is not valid for 'overpass.osm.jp'. (_ssl.c:1016)>
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59202);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59202);out geom;'
+  overpass: https://overpass.private.coffee/api/interpreter ok (17701 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (21988 байт)
+  ! нет полигона: rel 59202 'Ленинский район' (колец: 0; члены: {'way/outer': 9, 'node/label': 1})
+  overpass: https://overpass-api.de/api/interpreter ok (19012 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (43200 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59246);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59246);out geom;'
+  overpass: https://overpass.private.coffee/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59246);out geom;'
+  overpass: https://overpass-api.de/api/interpreter ok (26543 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (15818 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];rel(59250);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ok (10778 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (15656 байт)
+  районов с полигонами: 7: Советский район, Октябрьский район, Московский район, Первомайский район, Центральный район, Фрунзенский район, Заводской район
+3/6 Населённые пункты района...
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];area(3600059190)->.a;(node(area.a)["place"]["name"];way(area.a)["place"]["name"];);out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];area(3600059190)->.a;(node(area.a)["place"]["name"];way(area.a)["place"]["name"];);out center;'
+  overpass: https://overpass.private.coffee/api/interpreter ok (626857 байт)
+  населённых пунктов/микрорайонов: 355
+4/6 Улицы города и района...
+  overpass: https://overpass-api.de/api/interpreter ok (5602506 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (1633005 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(living_street|unclassified)$"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(living_street|unclassified)$"];out center;'
+  overpass: https://overpass.private.coffee/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(living_street|unclassified)$"];out center;'
+  overpass: https://overpass-api.de/api/interpreter ok (90008 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(service)$"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(service)$"];out center;'
+  overpass: https://overpass.private.coffee/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(service)$"];out center;'
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(service)$"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(service)$"];out center;'
+  overpass: https://overpass.private.coffee/api/interpreter ok (116007 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (98413 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(road|busway|construction)$"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(road|busway|construction)$"];out center;'
+  overpass: https://overpass.private.coffee/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:900];area(3600059195)->.a;way(area.a)["highway"]["name"]["highway"~"^(road|busway|construction)$"];out center;'
+  overpass: https://overpass-api.de/api/interpreter ok (24178 байт)
+Traceback (most recent call last):
+  File "/home/runner/work/CRM/CRM/tools/build_street_index.py", line 493, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/runner/work/CRM/CRM/tools/build_street_index.py", line 427, in main
+    dist = district_of(c["lat"], c["lon"]) if is_city else "Минский район"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/CRM/CRM/tools/build_street_index.py", line 388, in district_of
+    for name, rings in polygons:
+        ^^^^^^^^^^^
+ValueError: too many values to unpack (expected 2)
 exit=1
