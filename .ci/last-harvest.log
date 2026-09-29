@@ -6,14 +6,7 @@
   кандидат: rel 59190 | name:ru='Минский район' | name='Мінскі раён' | admin_level=6
   область «Минский район»: relation 59190
 2/6 Районы города (границы)...
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 429: Too Many Requests
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
-  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
-  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 504: Gateway Timeout
-  overpass: https://overpass.kumi.systems/api/interpreter ok (19357 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (19433 байт)
   граница в городе: rel 59065 L2 'Беларусь'
   граница в городе: rel 59190 L6 'Минский район'
   граница в городе: rel 59195 L4 'Минск'
@@ -26,14 +19,33 @@
   граница в городе: rel 59250 L9 'Советский район'
   граница в городе: rel 59252 L9 'Первомайский район'
   граница в городе: rel 59752 L4 'Минская область'
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
-  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request
-  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out>
+  overpass: https://overpass-api.de/api/interpreter ok (23604 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (17854 байт)
+  ! нет полигона: rel 59202 'Ленинский район' (колец: 0)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 429: Too Many Requests | q: '[out:json][timeout:300];rel(59208);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ok (18910 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (43200 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (26543 байт)
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 429: Too Many Requests | q: '[out:json][timeout:300];rel(59249);out geom;'
+  overpass: https://overpass.kumi.systems/api/interpreter ok (15869 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (10829 байт)
+  overpass: https://overpass-api.de/api/interpreter ok (15656 байт)
+  районов с полигонами: 7: Советский район, Октябрьский район, Московский район, Первомайский район, Центральный район, Фрунзенский район, Заводской район
+3/6 Населённые пункты района...
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 429: Too Many Requests | q: '[out:json][timeout:300];area(3600059190)->.a;(node(area.a)["place"]["name"];way(area.a)["place"]["name"];);out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 504: Gateway Timeout | q: '[out:json][timeout:300];area(3600059190)->.a;(node(area.a)["place"]["name"];way(area.a)["place"]["name"];);out center;'
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out> | q: '[out:json][timeout:300];area(3600059190)->.a;(node(area.a)["place"]["name"];way(area.a)["place"]["name"];);out center;'
+  overpass: https://overpass-api.de/api/interpreter ok (639700 байт)
+  населённых пунктов/микрорайонов: 357
+4/6 Улицы города и района...
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out> | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out> | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass-api.de/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.kumi.systems/api/interpreter ошибка: HTTP Error 400: Bad Request | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
+  overpass: https://overpass.openstreetmap.ru/api/interpreter ошибка: <urlopen error [Errno 110] Connection timed out> | q: '[out:json][timeout:600];area(3600059195)->.a;way(area.a)["highway"]["name"]["name"~"^[А-Д]"];out center;'
 Overpass недоступен: <urlopen error [Errno 110] Connection timed out>
 exit=1
