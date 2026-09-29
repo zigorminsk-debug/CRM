@@ -34,7 +34,7 @@ ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 ]
-UA = "CRM-street-index/2.0 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.1 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -228,7 +228,18 @@ def main() -> None:
         t = r.get("tags", {})
         print(f"  граница в городе: rel {r['id']} L{t.get('admin_level')} "
               f"{t.get('name:ru') or t.get('name')!r}", flush=True)
-    ids = [r["id"] for r in rels if r["id"] not in (city_rel_id, region_rel_id)]
+    ids = []
+    for r in rels:
+        t = r.get("tags", {})
+        try:
+            lvl = int(t.get("admin_level", "0"))
+        except (TypeError, ValueError):
+            lvl = 0
+        # только внутригородские границы (районы города): страна/область/город/район
+        # (уровни ниже 8) тянут геометрию всей страны — Overpass отвечает 400
+        if r["id"] in (city_rel_id, region_rel_id) or lvl < 8:
+            continue
+        ids.append(r["id"])
     els = q_geom(ids) if ids else []
     nodes = {e["id"]: (e["lon"], e["lat"]) for e in els if e["type"] == "node"}
     ways = {e["id"]: [nodes[n] for n in e.get("nodes", []) if n in nodes]
