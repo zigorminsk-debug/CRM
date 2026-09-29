@@ -32,9 +32,9 @@ DATA_DIR = os.path.join(HERE, "..", "server", "app", "data")
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.openstreetmap.ru/api/interpreter",
+    "https://overpass.osm.jp/api/interpreter",
 ]
-UA = "CRM-street-index/2.4 (contact: ziv@csl.by)"
+UA = "CRM-street-index/2.5 (contact: ziv@csl.by)"
 
 _DESIGNATORS = (
     "улица", "ул", "проспект", "пр-т", "пр", "переулок", "пер", "тракт", "шоссе", "ш",
@@ -327,9 +327,34 @@ def main() -> None:
         else:
             print(f"  ! нет полигона: rel {rid} {nm!r} (колец: {len(rings)})", flush=True)
     polygons.sort(key=lambda x: x[2])
-    print(f"  районов с полигонами: {len(polygons)}: "
-          + ", ".join(p[0] for p in polygons), flush=True)
-    report = ["== Полигоны районов города =="] + [f"{p[0]} (площадь ~{p[2]:.4f})" for p in polygons]
+
+    def polygons_report(pl):
+        print(f"  районов с полигонами: {len(pl)}: "
+              + (", ".join(p[0] for p in pl) or "НЕТ"), flush=True)
+        return (["== Полигоны районов города =="]
+                + [f"{p[0]} (площадь ~{p[2]:.4f})" for p in pl])
+
+    report = polygons_report(polygons)
+    if not polygons:
+        # Overpass флапает: без полигонов у городских улиц не будет района —
+        # вторая попытка, иначе сбор проваливаем (мусор не коммитим)
+        print("  полигоны пусты — повторная попытка через 60 с", flush=True)
+        time.sleep(60)
+        polygons = []
+        for rid in ids:
+            rel = q_geom(rid)
+            if not rel:
+                continue
+            t = rel.get("tags", {})
+            nm = t.get("name:ru") or ru_name(t.get("name", ""))
+            rings = rings_from_geom(rel)
+            if nm and rings:
+                polygons.append((nm, rings, ring_area(rings)))
+        polygons.sort(key=lambda x: x[2])
+        report = polygons_report(polygons)
+    if len(polygons) < 5:
+        raise SystemExit(f"Собрано полигонов районов: {len(polygons)} (<5) — "
+                         "коммитить улицы без принадлежности нельзя")
 
     def district_of(lat: float, lon: float) -> str:
         pt = (lon, lat)
@@ -388,7 +413,9 @@ def main() -> None:
 
     print("5/6 Дома...", flush=True)
     houses = {}
+    h_city = h_reg = 0
     for area in (city, region):
+        before = sum(len(v) for v in houses.values())
         for e in q_houses(area):
             tags = e.get("tags", {})
             st = tags.get("addr:street", "")
@@ -400,8 +427,16 @@ def main() -> None:
             if not k:
                 continue
             houses.setdefault(k, {}).setdefault(hn, (c["lat"], c["lon"]))
-    total_h = sum(len(v) for v in houses.values())
-    print(f"  домов: {total_h} (у улиц: {len(houses)})", flush=True)
+        if area == city:
+            h_city = sum(len(v) for v in houses.values()) - before
+    h_reg = sum(len(v) for v in houses.values()) - h_city
+    total_h = h_city + h_reg
+    print(f"  домов: {total_h} (город {h_city}, район {h_reg}; у улиц: {len(houses)})",
+          flush=True)
+    report.append(f"== Дома: город {h_city}, район {h_reg}, всего {total_h} ==")
+    # гейты качества: обескровленный справочник хуже его отсутствия
+    if total_h < 10000 or len(streets) < 800:
+        raise SystemExit(f"Справочник подозрительно мал: домов {total_h}, улиц {len(streets)}")
 
     print("6/6 Запись файлов...", flush=True)
     os.makedirs(DATA_DIR, exist_ok=True)
